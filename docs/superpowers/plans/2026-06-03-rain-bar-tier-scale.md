@@ -10,7 +10,7 @@
 
 **Reference:** Design spec at `docs/superpowers/specs/2026-06-03-rain-bar-tier-scale-design.md`.
 
-**Note on TDD:** This is a UI rendering change in a Pebble C app with no unit-test harness for rendering. Each task's verification step is a clean `mise build` (compile-time correctness); the final task does end-to-end visual verification in the emulator.
+**Note on TDD:** This is a UI rendering change in a Pebble C app with no unit-test harness for rendering. There are no automated tests to run. The user handles all build and emulator commands themselves — the implementer must NOT run `mise build`, `mise install-emulator`, or any other build/run command. After the implementer makes the edits and commits, the user will build, run the emulator, and verify visually.
 
 ---
 
@@ -102,12 +102,7 @@ static int rain_tier_of_tenths(int tenths)
 }
 ```
 
-- [ ] **Step 3: Build and confirm clean**
-
-Run: `mise build`
-Expected: build succeeds. Compiler may emit `unused-function` / `unused-variable` warnings for `rain_tier_of_tenths`, the new palettes, and the new tables — that's fine; Task 2 wires them in. If the build *fails* (not warns), re-check the edits.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add src/c/layers/forecast_layer.c
@@ -117,6 +112,8 @@ Purely additive: new s_rain_tier_blue and s_rain_tier_red palettes plus
 RAIN_TIER_* lookup tables and rain_tier_of_tenths() helper. Wiring into
 the per-bar drawing block follows in the next commit."
 ```
+
+Do not run `mise build` — the user runs builds themselves. Pause here for the user's build feedback before starting Task 2.
 
 ---
 
@@ -299,10 +296,10 @@ Find the rain-bar drawing region at lines 662–745 (header comment plus the `fo
 
 Verify visually that the loop ends just before `// Draw the precipitation line` and `s_path_precip_top.num_points = num_entries;` (the next code section is untouched).
 
-- [ ] **Step 5: Build and confirm clean**
+- [ ] **Step 5: Sanity-check for stale references**
 
-Run: `mise build`
-Expected: build succeeds with no errors. Warnings about previously-unused symbols should now be gone. If you see any `s_rain_overflow_*` reference still in the file, that's a stale call site — grep with `grep -n s_rain_overflow src/c/layers/forecast_layer.c` and fix the leftover.
+Run: `grep -n s_rain_overflow src/c/layers/forecast_layer.c`
+Expected: no matches. If anything prints, that's a stale call site left over from the rename — fix it before committing.
 
 - [ ] **Step 6: Commit**
 
@@ -318,6 +315,8 @@ every internal boundary the bar reaches, including over the gradient cap.
 
 Supersedes the linear+overflow implementation from spec 2026-06-01."
 ```
+
+Do not run `mise build` — the user runs builds themselves. Pause for the user's build feedback before starting Task 3.
 
 ---
 
@@ -362,20 +361,15 @@ exercise the new tier-scale render on first boot."
 
 ---
 
-## Task 4: Visual verification in the emulator
+## Task 4: Visual-verification checklist (user runs the emulator)
 
-No tests run by code — verification is by eye. Hit one color platform and one B&W platform at minimum; the rest follow if those look right.
+The implementer does NOT run the emulator. After Task 3 commits, hand control back to the user with this checklist so they can run `mise install-emulator` themselves and verify by eye.
 
 **Files:** none modified.
 
-- [ ] **Step 1: Build and install on basalt (color)**
+- [ ] **Step 1: Color-platform checklist (basalt / chalk / emery)**
 
-Run: `mise install-emulator --emu basalt --logs`
-Expected: the emulator boots, the watchface loads with the rainy fixture, and runtime logs print to the terminal.
-
-- [ ] **Step 2: Visually verify each tier on basalt**
-
-In the running emulator window, confirm by eye, walking left-to-right across the forecast row:
+When the user runs the emulator on a color platform with `fixtures/rainy.json`, the following should be visible, walking left-to-right across the forecast row:
 
 - Hour 1 (0.1 mm, tier 1): 1/5-height bar, plain white, no cap, no separator.
 - Hour 2 (0.3 mm, tier 2): 2/5-height bar, blue gradient covering its top 1/5, one cobalt separator at the 1/5 plot_h row.
@@ -383,43 +377,23 @@ In the running emulator window, confirm by eye, walking left-to-right across the
 - Hour 5 (2.5 mm, tier 4): 4/5-height bar, orange gradient covering its top 2/5, three cobalt separators at 1/5, 2/5, 3/5 rows.
 - Hour 8 (14.0 mm, tier 5): full-height bar, red gradient covering its top 3/5, four cobalt separators at 1/5, 2/5, 3/5, 4/5 rows.
 
-Also confirm:
+Also:
 - Each bar fills almost the entire hour slot horizontally (≈ `entry_w - 1` px wide), with a thin gap between adjacent bars — no thin sliver bars.
 - Dry hours have no bar.
-- No per-mm notches anywhere (the only horizontal lines in the bars are at tier boundaries).
+- No per-mm notches anywhere (the only horizontal lines in bars are at tier boundaries).
 
-Run: `mise screenshot-emulator` to save a screenshot if you want a record.
+- [ ] **Step 2: B&W-platform checklist (aplite / diorite)**
 
-- [ ] **Step 3: Build and install on diorite (B&W)**
+On B&W, the user should see:
 
-Run: `mise install-emulator --emu diorite --logs`
-Expected: emulator boots; bars render in black with no gradient overlay.
-
-- [ ] **Step 4: Visually verify on diorite**
-
-Confirm:
-- Five distinct bar heights are present (one per tier — 1/5, 2/5, 3/5, 4/5, 5/5 of plot_h).
-- Bars are solid black, no gradient.
-- Separator lines appear at every internal tier-segment boundary the bar reaches, rendered in light gray.
+- Five distinct bar heights (one per tier — 1/5..5/5 of plot_h).
+- Bars solid black, no gradient.
+- Separator lines at every internal tier-segment boundary the bar reaches, rendered in light gray.
 - Bars fill the slot (minus the 1 px gap).
 
-Run: `mise screenshot-emulator` to save a B&W screenshot.
+- [ ] **Step 3: Wait for the user's verdict**
 
-- [ ] **Step 5: Spot-check Chalk, Emery, and Aplite (optional but recommended)**
-
-If basalt and diorite both look right, the remaining platforms should follow because the render path is identical. If time permits, run:
-
-```bash
-mise install-emulator --emu chalk
-mise install-emulator --emu emery
-mise install-emulator --emu aplite
-```
-
-For each, confirm the bars render the same as basalt (Chalk/Emery — color) or diorite (Aplite — B&W). On Emery specifically, confirm `bar_w` works out wide enough to make the gradient legible (entry_w is largest there).
-
-- [ ] **Step 6: Kill the emulator**
-
-Run: `mise kill-emulator`
+If the user reports the render is correct, the plan is done. If they report a visual bug, capture the specific symptom and diagnose with the spec in hand — likely culprits: off-by-one in `bar_w` (slot-fill issue), wrong index into a lookup table, missing `#ifdef PBL_COLOR` guard around a B&W path, or a missed `s_rain_overflow_*` rename.
 
 No commit on this task — verification only.
 
@@ -440,6 +414,7 @@ Spec coverage check:
 | Constants removed | Task 2, Steps 1–2 |
 | Fixture coverage of all 5 tiers | Task 3, Step 1 |
 | B&W behavior (no gradient, heights + gray separators) | Task 2, Step 4 (separators run on both branches; gradient inside `#ifdef PBL_COLOR`) |
-| Build clean across platforms | Task 4, Steps 1, 3 (basalt + diorite); Step 5 (others) |
+| Build clean across platforms | User-driven post-Task 2 build (the implementer does not run builds) |
+| Visual correctness across platforms | Task 4, Steps 1–2 (color + B&W checklists for the user) |
 
 No gaps found. No placeholders. Type and name consistency verified: `RAIN_TIER_*`, `s_rain_tier_*`, `rain_tier_of_tenths`, `bar_w`, `bar_h`, `grad_h` all match between tasks.
