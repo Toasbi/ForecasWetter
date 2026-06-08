@@ -450,6 +450,32 @@ static void draw_night_boundaries_over_precip(GContext *ctx, GRect graph_plot_re
 
 static GSize temp_label_string_size(const char *text);
 
+static void draw_precip_area(GContext *ctx, GRect graph_bounds, int h,
+                             const uint8_t *precips, int num_entries) {
+    const float entry_w = (float) graph_bounds.size.w / (num_entries - 1);
+    for (int i = 0; i < num_entries; ++i) {
+        const int entry_x = graph_bounds.origin.x + i * entry_w;
+        const int precip = precips[i];
+        const int precip_h = (float) precip / 100.0 * (h - BOTTOM_AXIS_H);
+        s_points_precip[i] = GPoint(entry_x, h - BOTTOM_AXIS_H - precip_h);
+    }
+    s_points_precip[num_entries]     = GPoint(graph_bounds.origin.x + graph_bounds.size.w, h - BOTTOM_AXIS_H);
+    s_points_precip[num_entries + 1] = GPoint(graph_bounds.origin.x, h - BOTTOM_AXIS_H);
+
+    s_path_precip_area_under.num_points = num_entries + 2;
+    s_path_precip_area_under.points = s_points_precip;
+    graphics_context_set_fill_color(ctx, PRECIP_FILL_COLOR);
+    gpath_draw_filled(ctx, &s_path_precip_area_under);
+}
+
+static void draw_precip_top_line(GContext *ctx, int num_entries) {
+    s_path_precip_top.num_points = num_entries;
+    s_path_precip_top.points = s_points_precip;
+    graphics_context_set_stroke_color(ctx, GColorPictonBlue);
+    graphics_context_set_stroke_width(ctx, 1);
+    gpath_draw_outline_open(ctx, &s_path_precip_top);
+}
+
 static void draw_temp_line(GContext *ctx, GRect graph_bounds, int h,
                            const int16_t *temps, int num_entries, int lo, int hi) {
     const int temp_plot_h = h - MARGIN_TEMP_H * 2 - BOTTOM_AXIS_H;
@@ -523,11 +549,6 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     {
         int entry_x = graph_bounds.origin.x + i * entry_w;
 
-        // Save a point for the precipitation probability
-        int precip = precips[i];
-        int precip_h = (float)precip / 100.0 * (h - BOTTOM_AXIS_H);
-        s_points_precip[i] = GPoint(entry_x, h - BOTTOM_AXIS_H - precip_h);
-
         // emery: draw emphasized major/minor bottom-axis ticks for improved readability.
 #ifdef PBL_PLATFORM_EMERY
         const bool is_label_tick = (i % entries_per_label) == 0;
@@ -586,17 +607,8 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     }
 #endif
 
-    // Complete the area under the precipitation
-    s_points_precip[num_entries] = GPoint(graph_bounds.origin.x + w, h - BOTTOM_AXIS_H);
-    s_points_precip[num_entries + 1] = GPoint(graph_bounds.origin.x, h - BOTTOM_AXIS_H);
-
     // Fill the precipitation area
-    s_path_precip_area_under.num_points = num_entries + 2;
-    s_path_precip_area_under.points = s_points_precip;
-    MEMORY_HEAP_PROBE_SAMPLE("before_precip_path_draw", &redraw_probe);
-    graphics_context_set_fill_color(ctx, PRECIP_FILL_COLOR);
-    gpath_draw_filled(ctx, &s_path_precip_area_under);
-    MEMORY_HEAP_PROBE_SAMPLE("after_precip_path_draw", &redraw_probe);
+    draw_precip_area(ctx, graph_bounds, h, precips, num_entries);
 
     if (render_spec.draw_night_overlay)
     {
@@ -620,14 +632,8 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
         draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments);
     }
 
-    // Draw the precipitation line
-    s_path_precip_top.num_points = num_entries;
-    s_path_precip_top.points = s_points_precip;
-    MEMORY_HEAP_PROBE_SAMPLE("before_precip_top_draw", &redraw_probe);
-    graphics_context_set_stroke_color(ctx, GColorPictonBlue);
-    graphics_context_set_stroke_width(ctx, 1);
-    gpath_draw_outline_open(ctx, &s_path_precip_top);
-    MEMORY_HEAP_PROBE_SAMPLE("after_precip_top_draw", &redraw_probe);
+    // Draw the precipitation top line
+    draw_precip_top_line(ctx, num_entries);
 
     // Draw the temperature line
     draw_temp_line(ctx, graph_bounds, h, temps, num_entries, lo, hi);
