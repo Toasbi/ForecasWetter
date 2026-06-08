@@ -3,6 +3,7 @@
 #include "c/layers/forecast_layer.h"
 #include "c/layers/weather_status_layer.h"
 #include "c/layers/calendar_layer.h"
+#include "c/layers/rain_radar_layer.h"
 #include "c/layers/calendar_status_layer.h"
 #include "c/layers/loading_layer.h"
 #include "c/appendix/app_message.h"
@@ -66,6 +67,7 @@ static void main_window_load(Window *window) {
     weather_status_layer_create(window_layer, GRect(content_x, weather_status_y, content_w, WEATHER_STATUS_HEIGHT));
     time_layer_create(window_layer, GRect(content_x, time_y, content_w, time_h));
     calendar_layer_create(window_layer, GRect(content_x, calendar_y, content_w, calendar_h));
+    rain_radar_layer_create(window_layer, GRect(content_x, calendar_y, content_w, calendar_h));
     calendar_status_layer_create(window_layer, GRect(content_x, content_y, content_w, CALENDAR_STATUS_HEIGHT + 1)); // +1 to stop text clipping
     loading_layer_create(window_layer, GRect(content_x, weather_status_y, content_w, h - EMERY_WINDOW_PAD_BOTTOM - weather_status_y));
 #else
@@ -77,6 +79,8 @@ static void main_window_load(Window *window) {
             GRect(0, h - FORECAST_HEIGHT - WEATHER_STATUS_HEIGHT - TIME_HEIGHT,
             bounds.size.w, TIME_HEIGHT));
     calendar_layer_create(window_layer,
+            GRect(0, CALENDAR_STATUS_HEIGHT, bounds.size.w, CALENDAR_HEIGHT));
+    rain_radar_layer_create(window_layer,
             GRect(0, CALENDAR_STATUS_HEIGHT, bounds.size.w, CALENDAR_HEIGHT));
     calendar_status_layer_create(window_layer,
             GRect(0, 0, bounds.size.w, CALENDAR_STATUS_HEIGHT + 1));  // +1 to stop text clipping
@@ -94,6 +98,7 @@ static void main_window_unload(Window *window) {
     weather_status_layer_destroy();
     forecast_layer_destroy();
     calendar_layer_destroy();
+    rain_radar_layer_destroy();
     calendar_status_layer_destroy();
     loading_layer_destroy();
     MEMORY_LOG_HEAP("after_window_unload");

@@ -6,6 +6,7 @@
 #include "c/layers/loading_layer.h"
 #include "c/layers/calendar_layer.h"
 #include "c/layers/calendar_status_layer.h"
+#include "c/layers/rain_radar_layer.h"
 #include "c/windows/main_window.h"
 #include "memory_log.h"
 
@@ -89,8 +90,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
             (uint8_t*) rain_radar_area_tuple->value->data, 24);
         persist_set_rain_radar_start(
             (time_t) rain_radar_start_tuple->value->int32);
-        // The radar layer doesn't exist yet at this point in the plan — refresh
-        // is wired in Task 8.
+        rain_radar_layer_refresh();
     } else if (rain_radar_exact_tuple || rain_radar_area_tuple) {
         // Partial radar payload — log and skip.
         APP_LOG(APP_LOG_LEVEL_WARNING,
