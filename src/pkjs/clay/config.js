@@ -206,6 +206,27 @@ module.exports = [
                 "description": "<a href='https://openweathermap.org/'>Register an OpenWeatherMap account</a> and paste your API key here"
             },
             {
+                "type": "select",
+                "label": "Update interval",
+                "messageKey": "fetchIntervalMin",
+                "defaultValue": "30",
+                "description": "How often to refresh weather data. Longer intervals save battery and reduce API usage.",
+                "options": [
+                    {
+                        "label": "15 minutes",
+                        "value": "15"
+                    },
+                    {
+                        "label": "30 minutes",
+                        "value": "30"
+                    },
+                    {
+                        "label": "1 hour",
+                        "value": "60"
+                    }
+                ]
+            },
+            {
                 "type": "toggle",
                 "label": "Force weather fetch",
                 "messageKey": "fetch",

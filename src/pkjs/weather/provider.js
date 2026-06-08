@@ -162,6 +162,10 @@ var WeatherProvider = function() {
     this.usedGpsCache = false;
     this.gpsErrorCode = null;
     this.locationMode = null;
+    this.rainTrend = new Array(this.numEntries);
+    for (var rainIdx = 0; rainIdx < this.numEntries; rainIdx += 1) {
+        this.rainTrend[rainIdx] = 0;
+    }
 };
 
 WeatherProvider.prototype.gpsEnable = function() {
@@ -594,6 +598,12 @@ WeatherProvider.prototype.getPayload = function() {
     var precips = this.precipTrend.slice(0, this.numEntries).map(function(probability) {
         return Math.round(probability * 100);
     });
+    var rains = this.rainTrend.slice(0, this.numEntries).map(function(mmPerHour) {
+        var scaled = Math.round((mmPerHour || 0) * 10);
+        if (scaled < 0) { return 0; }
+        if (scaled > 255) { return 255; }
+        return scaled;
+    });
     var tempsIntView = new Int16Array(temps);
     var tempsByteArray = Array.prototype.slice.call(new Uint8Array(tempsIntView.buffer));
     var sunEventsIntView = new Int32Array(this.sunEvents.map(function(sunEvent) {
@@ -603,6 +613,7 @@ WeatherProvider.prototype.getPayload = function() {
     var payload = {
         TEMP_TREND_INT16: tempsByteArray,
         PRECIP_TREND_UINT8: precips, // Holds values within [0,100]
+        RAIN_TREND_UINT8: rains, // Holds values within [0,255], representing 0.0..25.5 mm/h (5 mm cap on the watch; >5 mm signals overflow)
         FORECAST_START: this.startTime,
         NUM_ENTRIES: this.numEntries,
         CURRENT_TEMP: Math.round(this.currentTemp),

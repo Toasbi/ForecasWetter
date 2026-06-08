@@ -137,6 +137,10 @@ WundergroundProvider.prototype.withProviderData = function(lat, lon, force, onSu
                 this.precipTrend = forecast.map(function(entry) {
                     return entry.pop / 100.0;
                 });
+                this.rainTrend = forecast.map(function(entry) {
+                    var qpfInches = typeof entry.qpf === 'number' ? entry.qpf : 0;
+                    return qpfInches * 25.4;
+                });
                 this.startTime = forecast[0].fcst_valid;
                 this.currentTemp = currentTemp;
                 onSuccess();

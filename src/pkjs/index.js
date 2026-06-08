@@ -832,6 +832,12 @@ function getFixtureWeatherPayload(fixture) {
     provider.precipTrend = Array.isArray(weather.precipPct) ? weather.precipPct.map(function(probabilityPercent) {
         return probabilityPercent / 100.0;
     }) : [];
+    provider.rainTrend = Array.isArray(weather.rainMm) ? weather.rainMm.slice(0) : new Array(provider.numEntries);
+    if (!Array.isArray(weather.rainMm)) {
+        for (var rainFillIdx = 0; rainFillIdx < provider.numEntries; rainFillIdx += 1) {
+            provider.rainTrend[rainFillIdx] = 0;
+        }
+    }
     provider.sunEvents = sunEvents;
 
     if (provider.numEntries <= 0 || sunEvents.length < 2 || !provider.hasValidData()) {
@@ -968,26 +974,25 @@ function tryFetch(provider) {
     };
 }
 
-function roundDownMinutes(date, minuteMod) {
-    // E.g. with minuteMod=30, 3:52 would roll back to 3:30
-    out = new Date(date);
-    out.setMinutes(date.getMinutes() - (date.getMinutes() % minuteMod));
-    out.setSeconds(0);
-    out.setMilliseconds(0);
-    return out;
-}
-
 function needRefresh() {
-    // If the weather has never been fetched
-    var lastFetchSuccessString = localStorage.getItem(KEY_LAST_FETCH_SUCCESS);
-    if (lastFetchSuccessString === null) {
+    // Slot-based boundary check: a "slot" is a chunk of length intervalMs since the
+    // Unix epoch. Refresh whenever Date.now() sits in a later slot than the last
+    // successful fetch. Slots are UTC-aligned, which matches local clock :NN
+    // boundaries in whole-hour timezones (see spec for half-hour-offset caveat).
+    var raw = localStorage.getItem(KEY_LAST_FETCH_SUCCESS);
+    if (raw === null) {
         return true;
     }
-    var lastFetchSuccess = JSON.parse(lastFetchSuccessString);
-    if (lastFetchSuccess.time === null) {
-        // Just covering all my bases
+    var last = JSON.parse(raw);
+    if (!last || !last.time) {
         return true;
     }
-    // If the most recent fetch is more than 30 minutes old
-    return (Date.now() - roundDownMinutes(new Date(lastFetchSuccess.time), 30) > 1000 * 60 * 30);
+    var lastTimeMs = new Date(last.time).getTime();
+    if (isNaN(lastTimeMs)) {
+        return true;
+    }
+    var intervalMs = app.settings.fetchIntervalMin * 60 * 1000;
+    var lastSlot = Math.floor(lastTimeMs / intervalMs);
+    var nowSlot = Math.floor(Date.now() / intervalMs);
+    return nowSlot > lastSlot;
 }

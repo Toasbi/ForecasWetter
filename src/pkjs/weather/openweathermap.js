@@ -100,6 +100,11 @@ OpenWeatherMapProvider.prototype.withProviderData = function(lat, lon, force, on
         this.precipTrend = weatherData.hourly.map(function(entry) {
             return entry.pop;
         });
+        this.rainTrend = weatherData.hourly.map(function(entry) {
+            var rainAmount = (entry.rain && typeof entry.rain['1h'] === 'number') ? entry.rain['1h'] : 0;
+            var snowAmount = (entry.snow && typeof entry.snow['1h'] === 'number') ? entry.snow['1h'] : 0;
+            return rainAmount + snowAmount;
+        });
         this.startTime = weatherData.hourly[0].dt;
         this.currentTemp = weatherData.current.temp;
         onSuccess();
