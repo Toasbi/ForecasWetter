@@ -3,6 +3,7 @@
 #include "c/appendix/math.h"
 #include "c/appendix/config.h"
 #include "c/appendix/memory_log.h"
+#include "c/appendix/rain_tier.h"
 
 #define LEFT_AXIS_LABEL_STRIP_MIN_W 15
 #define LEFT_AXIS_LABEL_TO_GRAPH_GAP 2
@@ -34,25 +35,6 @@
 #define FORECAST_STEP_SECONDS (60 * 60)
 #define DAY_SECONDS (24 * 60 * 60)
 #define MAX_FORECAST_ENTRIES 24
-#define BAR_COLOR PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack)
-
-// Five-tier stepped rain scale. Each tier maps to a discrete bar height
-// (in fifths of plot_h) and is filled with a single solid color. See
-// docs/superpowers/specs/2026-06-03-rain-bar-tier-scale-design.md.
-#define RAIN_TIER_COUNT 5
-static const int RAIN_TIER_HEIGHT_FIFTHS[RAIN_TIER_COUNT] = { 1, 2, 3, 4, 5 };
-// Inclusive upper bounds in wire tenths for tiers 1..4. Tier 5 catches the rest.
-static const int RAIN_TIER_MAX_TENTHS[RAIN_TIER_COUNT - 1] = { 1, 5, 20, 100 };
-
-static int rain_tier_of_tenths(int tenths)
-{
-    // Caller must ensure tenths > 0.
-    for (int i = 0; i < RAIN_TIER_COUNT - 1; ++i)
-    {
-        if (tenths <= RAIN_TIER_MAX_TENTHS[i]) { return i + 1; }
-    }
-    return RAIN_TIER_COUNT;
-}
 
 typedef struct
 {
@@ -635,41 +617,10 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
                                           s_points_precip, num_entries);
     }
 
-    // Rain-amount bars. Five discrete heights (1/5..5/5 plot_h) encode tier;
-    // each bar is a single solid tier color. The night-region hatch is drawn
-    // immediately after this block so it paints visibly on top of the bars.
-    const int16_t bar_plot_h = graph_plot_rect.size.h;
-    const int16_t bar_plot_bottom = graph_plot_rect.origin.y + bar_plot_h;
-    // Bar starts 1 px right of the hour-marker column and is 2 px thinner
-    // than the slot, leaving the marker pixel clear and a 1 px gap before
-    // the next bar. Falls back to 1 px when the slot is too narrow.
-    const int bar_w = (entry_w >= 3.0f) ? (int)entry_w - 2 : 1;
-    for (int i = 0; i < num_entries; ++i)
-    {
-        int tenths = rain_tenths[i];
-        if (tenths <= 0) { continue; }
-
-        const int tier = rain_tier_of_tenths(tenths);
-        int bar_h = (bar_plot_h * RAIN_TIER_HEIGHT_FIFTHS[tier - 1]) / 5;
-        if (bar_h <= 0) { bar_h = 1; }
-
-        const int bar_x = graph_bounds.origin.x + (int)(i * entry_w) + 1;
-        const int bar_top_y = bar_plot_bottom - bar_h;
-
-        GColor fill = BAR_COLOR;
-#ifdef PBL_COLOR
-        switch (tier)
-        {
-            case 2: fill = GColorCobaltBlue; break;
-            case 3: fill = GColorGreen;      break;
-            case 4: fill = GColorOrange;     break;
-            case 5: fill = GColorRed;        break;
-            default: break;  // tier 1: BAR_COLOR (white)
-        }
-#endif
-        graphics_context_set_fill_color(ctx, fill);
-        graphics_fill_rect(ctx, GRect(bar_x, bar_top_y, bar_w, bar_h), 0, GCornerNone);
-    }
+    // Rain-amount bars. See rain_tier.h. Drawn after precip-area + night
+    // hatch (over-precip) so colored bars sit visibly above the precip fill;
+    // the broader night-region hatch is drawn after this block.
+    rain_bars_draw(ctx, graph_plot_rect, rain_tenths, num_entries);
 
     // Night-region hatch overlays the bars so day/night is still readable
     // during rain. The over-precip pass above already handled the precip-
