@@ -160,11 +160,16 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
             var i;
             var grid;
             var raw;
+            var frame;
             var hasXy = xy && isFinite(xy.x) && isFinite(xy.y);
             for (i = 0; i < NUM_BARS && i < frames.length; i += 1) {
-                grid = frames[i].precipitation_5;
+                frame = frames[i];
                 // Per-frame defensive checks: a malformed frame contributes a
                 // zero bar rather than aborting the whole fetch.
+                if (!frame) {
+                    continue;
+                }
+                grid = frame.precipitation_5;
                 if (!Array.isArray(grid) || grid.length === 0 || !Array.isArray(grid[0]) || grid[0].length === 0) {
                     continue;
                 }
