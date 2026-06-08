@@ -450,6 +450,11 @@ static void draw_night_boundaries_over_precip(GContext *ctx, GRect graph_plot_re
 
 static GSize temp_label_string_size(const char *text);
 
+static void draw_rain_bars(GContext *ctx, GRect plot_rect,
+                           const uint8_t *rain_tenths, int num_entries) {
+    rain_bars_draw(ctx, plot_rect, rain_tenths, num_entries);
+}
+
 static void draw_precip_area(GContext *ctx, GRect graph_bounds, int h,
                              const uint8_t *precips, int num_entries) {
     const float entry_w = (float) graph_bounds.size.w / (num_entries - 1);
@@ -621,7 +626,7 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     // Rain-amount bars. See rain_tier.h. Drawn after precip-area + night
     // hatch (over-precip) so colored bars sit visibly above the precip fill;
     // the broader night-region hatch is drawn after this block.
-    rain_bars_draw(ctx, graph_plot_rect, rain_tenths, num_entries);
+    draw_rain_bars(ctx, graph_plot_rect, rain_tenths, num_entries);
 
     // Night-region hatch overlays the bars so day/night is still readable
     // during rain. The over-precip pass above already handled the precip-
