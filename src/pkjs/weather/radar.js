@@ -152,15 +152,26 @@ function gridCentre(grid) {
 }
 
 /**
- * Fetch 2 hours of 5-minute rainfall from Bright Sky's /radar endpoint at the
- * given lat/lon and pass a 24-entry uint8 array (mm/h * 10) to `onSuccess`.
+ * Fetch 2 hours of 5-minute rainfall from Bright Sky's /radar endpoint at
+ * the given lat/lon. Computes two parallel signals from one response:
  *
- * Out-of-coverage (HTTP 200 with `radar: []`) returns all zeros via onSuccess.
- * Network or parse errors invoke onFailure with `{stage: 'radar', code: ...}`.
+ *   - exact:      bilinear sample at the user's sub-pixel position.
+ *   - nearby_1km: max value among radar cells whose centre lies within
+ *                 NEARBY_RADIUS_KM (1 km) of the user.
+ *
+ * Both arrays use the watch's existing wire convention (uint8, mm/h * 10).
+ * The function guarantees `nearby_1km[i] >= exact[i]` by folding the
+ * exact value into the nearby max — the user's own point is, by
+ * definition, inside the disk centred on themselves.
+ *
+ * Out-of-coverage (HTTP 200 with `radar: []`) returns two arrays of
+ * zeros via onSuccess. Network or parse errors invoke onFailure with
+ * `{stage: 'radar', code: ...}`.
  *
  * @param {number} lat Latitude in decimal degrees.
  * @param {number} lon Longitude in decimal degrees.
- * @param {Function} onSuccess Receives a 24-entry number array, each 0..255.
+ * @param {Function} onSuccess Receives `{ exact, nearby_1km }`, each a
+ *   24-entry uint8 array of mm/h * 10 values.
  * @param {Function} onFailure Receives a `{stage, code}` failure object.
  * @returns {void}
  */
@@ -185,24 +196,24 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 return;
             }
             if (body.radar.length === 0) {
-                // Out of DWD coverage. Spec: return 24 zeros via onSuccess.
-                onSuccess(zeroBars());
+                // Out of DWD coverage. Return two 24-zero arrays so
+                // consumers see a flat signal rather than a
+                // coverage-specific error code.
+                onSuccess({ exact: zeroBars(), nearby_1km: zeroBars() });
                 return;
             }
             // Drop the first ("now") frame; the remaining frames cover
             // t+5 min .. t+120 min — exactly 24 5-minute bars.
             var frames = body.radar.slice(1);
             var xy = body.latlon_position;
-            var out = zeroBars();
-            var i;
-            var grid;
-            var raw;
-            var frame;
-            var hasXy = xy && isFinite(xy.x) && isFinite(xy.y);
+            var hasXy = Boolean(xy && isFinite(xy.x) && isFinite(xy.y));
+            var exactOut = zeroBars();
+            var nearbyOut = zeroBars();
+            var i, frame, grid, samplePos, exactRaw, nearbyRaw;
             for (i = 0; i < NUM_BARS && i < frames.length; i += 1) {
                 frame = frames[i];
-                // Per-frame defensive checks: a malformed frame contributes a
-                // zero bar rather than aborting the whole fetch.
+                // Per-frame defensive checks: a malformed frame contributes
+                // a (0, 0) pair rather than aborting the whole fetch.
                 if (!frame) {
                     continue;
                 }
@@ -210,10 +221,23 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 if (!Array.isArray(grid) || grid.length === 0 || !Array.isArray(grid[0]) || grid[0].length === 0) {
                     continue;
                 }
-                raw = sampleBilinear(grid, hasXy ? xy : gridCentre(grid));
-                out[i] = scaleToWireUnits(raw);
+                samplePos = hasXy ? xy : gridCentre(grid);
+                exactRaw = sampleBilinear(grid, samplePos);
+                nearbyRaw = maxOverDisk(grid, samplePos.x, samplePos.y, NEARBY_RADIUS_KM);
+                // Invariant guard. A pure disk-max can fall below the
+                // bilinear sample at corner sub-pixel positions, where
+                // the bilinear's diagonal neighbour sits ~sqrt(2) km
+                // away (outside the 1 km disk) yet still carries a
+                // small weight. Folding exactRaw into nearbyRaw keeps
+                // the planned UI invariant `nearby >= exact` true for
+                // every frame.
+                if (exactRaw > nearbyRaw) {
+                    nearbyRaw = exactRaw;
+                }
+                exactOut[i]  = scaleToWireUnits(exactRaw);
+                nearbyOut[i] = scaleToWireUnits(nearbyRaw);
             }
-            onSuccess(out);
+            onSuccess({ exact: exactOut, nearby_1km: nearbyOut });
         },
         function(error) {
             console.log('[!] Radar request failed: ' + JSON.stringify(error));
