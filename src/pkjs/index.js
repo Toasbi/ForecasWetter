@@ -146,6 +146,7 @@ Pebble.addEventListener('ready',
             app.pendingStartupFetch = false;
             fetch(app.provider, true);
         }
+        sendMockRainRadar();
         startTick();
     }
 );
@@ -507,6 +508,44 @@ function sendClaySettings(onSuccess, onFailure) {
         if (typeof onFailure === 'function') {
             onFailure(e);
         }
+    });
+}
+
+// Exact-location precip, tenths of mm/h per 5-min segment.
+var MOCK_RAIN_RADAR_EXACT = [
+    0,  0,  1,  1,  3,  6,
+   12, 25, 50, 80, 110, 90,
+   60, 30, 15,  8,  4,  2,
+    1,  0,  0,  0,  0,  0
+];
+
+// 1km-radius max precip, tenths of mm/h per 5-min segment.
+// Generally >= exact per slot. Slots 0-1: area > 0 but exact == 0
+// (exercises the uncut-hatch path). Slots 21-23: both zero
+// (exercises the no-run path).
+var MOCK_RAIN_RADAR_AREA = [
+    2,  4,  3,  5,  8, 15,
+   30, 45, 70, 100, 130, 120,
+   90, 60, 30, 20, 12,  6,
+    3,  2,  1,  0,  0,  0
+];
+
+/**
+ * Send a fixed mock rain-radar payload (two parallel 24 × 5min arrays,
+ * current unix time as start). Stand-in for a real provider implementation.
+ *
+ * @returns {void}
+ */
+function sendMockRainRadar() {
+    var payload = {
+        "RAIN_RADAR_TREND_UINT8": MOCK_RAIN_RADAR_EXACT,
+        "RAIN_RADAR_TREND_AREA_UINT8": MOCK_RAIN_RADAR_AREA,
+        "RAIN_RADAR_START": Math.floor(Date.now() / 1000)
+    };
+    Pebble.sendAppMessage(payload, function() {
+        console.log('Mock rain-radar sent: ' + JSON.stringify(payload));
+    }, function(e) {
+        console.log('Mock rain-radar failed: ' + JSON.stringify(e));
     });
 }
 
