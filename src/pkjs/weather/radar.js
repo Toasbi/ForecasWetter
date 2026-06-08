@@ -209,7 +209,12 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
             var hasXy = Boolean(xy && isFinite(xy.x) && isFinite(xy.y));
             var exactOut = zeroBars();
             var nearbyOut = zeroBars();
-            var i, frame, grid, samplePos, exactRaw, nearbyRaw;
+            var i;
+            var frame;
+            var grid;
+            var samplePos;
+            var exactRaw;
+            var nearbyRaw;
             for (i = 0; i < NUM_BARS && i < frames.length; i += 1) {
                 frame = frames[i];
                 // Per-frame defensive checks: a malformed frame contributes
@@ -234,7 +239,7 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 if (exactRaw > nearbyRaw) {
                     nearbyRaw = exactRaw;
                 }
-                exactOut[i]  = scaleToWireUnits(exactRaw);
+                exactOut[i] = scaleToWireUnits(exactRaw);
                 nearbyOut[i] = scaleToWireUnits(nearbyRaw);
             }
             onSuccess({ exact: exactOut, nearby_1km: nearbyOut });
