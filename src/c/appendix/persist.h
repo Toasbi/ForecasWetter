@@ -40,6 +40,18 @@ void persist_set_precip_trend(uint8_t *data, const size_t size);
 
 void persist_set_rain_trend(uint8_t *data, const size_t size);
 
+int persist_get_rain_radar_trend(uint8_t *buffer, const size_t buffer_size);
+
+int persist_get_rain_radar_trend_area(uint8_t *buffer, const size_t buffer_size);
+
+time_t persist_get_rain_radar_start();
+
+void persist_set_rain_radar_trend(uint8_t *data, const size_t size);
+
+void persist_set_rain_radar_trend_area(uint8_t *data, const size_t size);
+
+void persist_set_rain_radar_start(time_t val);
+
 void persist_set_forecast_start(time_t val);
 
 void persist_set_num_entries(int val);
