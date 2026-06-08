@@ -450,6 +450,23 @@ static void draw_night_boundaries_over_precip(GContext *ctx, GRect graph_plot_re
 
 static GSize temp_label_string_size(const char *text);
 
+static void draw_night_shading_under(GContext *ctx, GRect graph_plot_rect,
+                                     time_t forecast_start, time_t forecast_end,
+                                     const NightSegments *night_segments,
+                                     const GPoint *points_precip, int num_entries) {
+    draw_night_hatch_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                 night_segments, points_precip, num_entries);
+    draw_night_boundaries_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                       night_segments, points_precip, num_entries);
+}
+
+static void draw_night_shading_over(GContext *ctx, GRect graph_plot_rect,
+                                    time_t forecast_start, time_t forecast_end,
+                                    const NightSegments *night_segments) {
+    draw_night_regions(ctx, graph_plot_rect, forecast_start, forecast_end, night_segments);
+    draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, night_segments);
+}
+
 static void draw_rain_bars(GContext *ctx, GRect plot_rect,
                            const uint8_t *rain_tenths, int num_entries) {
     rain_bars_draw(ctx, plot_rect, rain_tenths, num_entries);
@@ -617,10 +634,8 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
 
     if (render_spec.draw_night_overlay)
     {
-        draw_night_hatch_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments,
-                                     s_points_precip, num_entries);
-        draw_night_boundaries_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments,
-                                          s_points_precip, num_entries);
+        draw_night_shading_under(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                 &night_segments, s_points_precip, num_entries);
     }
 
     // Rain-amount bars. See rain_tier.h. Drawn after precip-area + night
@@ -633,8 +648,8 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     // area variant; this paints the broader plot-rect hatch + boundary lines.
     if (render_spec.draw_night_overlay)
     {
-        draw_night_regions(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments);
-        draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments);
+        draw_night_shading_over(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                &night_segments);
     }
 
     // Draw the precipitation top line
