@@ -77,7 +77,11 @@ static void city_layer_refresh() {
 
 static void current_temp_layer_refresh() {
     static char s_temp_buffer[8];
-    snprintf(s_temp_buffer, sizeof(s_temp_buffer), "• %d", config_localize_temp(persist_get_current_temp()));
+    if (persist_get_is_sleeping()) {
+        snprintf(s_temp_buffer, sizeof(s_temp_buffer), "Zz");
+    } else {
+        snprintf(s_temp_buffer, sizeof(s_temp_buffer), "• %d", config_localize_temp(persist_get_current_temp()));
+    }
     text_layer_set_text(s_current_temp_layer, s_temp_buffer);
 
     // Dynamic resizing
