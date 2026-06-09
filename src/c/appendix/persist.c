@@ -3,7 +3,7 @@
 
 enum key {
     TEMP_LO, TEMP_HI, TEMP_TREND, PRECIP_TREND, FORECAST_START, CITY, SUN_EVENT_START_TYPE, SUN_EVENT_TIMES, NUM_ENTRIES,
-    CURRENT_TEMP, BATTERY_LEVEL, CONFIG, RAIN_TREND
+    CURRENT_TEMP, BATTERY_LEVEL, CONFIG, RAIN_TREND, RAIN_RADAR_TREND, RAIN_RADAR_TREND_AREA, RAIN_RADAR_START
 }; // Deprecated: BATTERY_LEVEL
 
 void persist_init() {
@@ -24,6 +24,17 @@ void persist_init() {
     if (!persist_exists(RAIN_TREND)) {
         uint8_t data[24] = {0};
         persist_write_data(RAIN_TREND, (void*) data, 24*sizeof(uint8_t));
+    }
+    if (!persist_exists(RAIN_RADAR_TREND)) {
+        uint8_t data[24] = {0};
+        persist_write_data(RAIN_RADAR_TREND, (void*) data, 24 * sizeof(uint8_t));
+    }
+    if (!persist_exists(RAIN_RADAR_TREND_AREA)) {
+        uint8_t data[24] = {0};
+        persist_write_data(RAIN_RADAR_TREND_AREA, (void*) data, 24 * sizeof(uint8_t));
+    }
+    if (!persist_exists(RAIN_RADAR_START)) {
+        persist_write_int(RAIN_RADAR_START, 0);
     }
     if (!persist_exists(FORECAST_START)) {
         persist_write_int(FORECAST_START, 0);
@@ -62,7 +73,8 @@ void persist_init() {
             .color_sunday = GColorFolly,
             .color_us_federal = GColorFolly,
             .color_time = GColorWhite,
-            .day_night_shading = true
+            .day_night_shading = true,
+            .top_view_default = 0
         };
         persist_set_config(config);
     }
@@ -134,6 +146,30 @@ void persist_set_precip_trend(uint8_t *data, const size_t size) {
 
 void persist_set_rain_trend(uint8_t *data, const size_t size) {
     persist_write_data(RAIN_TREND, (void*) data, size * sizeof(uint8_t));
+}
+
+int persist_get_rain_radar_trend(uint8_t *buffer, const size_t buffer_size) {
+    return persist_read_data(RAIN_RADAR_TREND, (void*) buffer, buffer_size * sizeof(uint8_t));
+}
+
+void persist_set_rain_radar_trend(uint8_t *data, const size_t size) {
+    persist_write_data(RAIN_RADAR_TREND, (void*) data, size * sizeof(uint8_t));
+}
+
+int persist_get_rain_radar_trend_area(uint8_t *buffer, const size_t buffer_size) {
+    return persist_read_data(RAIN_RADAR_TREND_AREA, (void*) buffer, buffer_size * sizeof(uint8_t));
+}
+
+void persist_set_rain_radar_trend_area(uint8_t *data, const size_t size) {
+    persist_write_data(RAIN_RADAR_TREND_AREA, (void*) data, size * sizeof(uint8_t));
+}
+
+time_t persist_get_rain_radar_start() {
+    return (time_t) persist_read_int(RAIN_RADAR_START);
+}
+
+void persist_set_rain_radar_start(time_t val) {
+    persist_write_int(RAIN_RADAR_START, (int) val);
 }
 
 void persist_set_forecast_start(time_t val) {

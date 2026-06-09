@@ -3,11 +3,31 @@
 #include "c/layers/forecast_layer.h"
 #include "c/layers/weather_status_layer.h"
 #include "c/layers/calendar_layer.h"
+#include "c/layers/rain_radar_layer.h"
 #include "c/layers/calendar_status_layer.h"
 #include "c/layers/loading_layer.h"
 #include "c/appendix/app_message.h"
 #include "c/appendix/persist.h"
 #include "c/appendix/memory_log.h"
+#include "c/appendix/config.h"
+
+typedef enum {
+    TOP_VIEW_CALENDAR = 0,
+    TOP_VIEW_RAIN_RADAR = 1
+} TopView;
+
+static TopView s_top_view;
+
+static void apply_top_view(TopView v) {
+    s_top_view = v;
+    layer_set_hidden(calendar_layer_get_root(), v != TOP_VIEW_CALENDAR);
+    layer_set_hidden(rain_radar_layer_get_root(), v != TOP_VIEW_RAIN_RADAR);
+}
+
+static void tap_handler(AccelAxisType axis, int32_t direction) {
+    apply_top_view(s_top_view == TOP_VIEW_CALENDAR
+                   ? TOP_VIEW_RAIN_RADAR : TOP_VIEW_CALENDAR);
+}
 
 #define FORECAST_HEIGHT 51
 #define WEATHER_STATUS_HEIGHT 14
@@ -66,6 +86,7 @@ static void main_window_load(Window *window) {
     weather_status_layer_create(window_layer, GRect(content_x, weather_status_y, content_w, WEATHER_STATUS_HEIGHT));
     time_layer_create(window_layer, GRect(content_x, time_y, content_w, time_h));
     calendar_layer_create(window_layer, GRect(content_x, calendar_y, content_w, calendar_h));
+    rain_radar_layer_create(window_layer, GRect(content_x, calendar_y, content_w, calendar_h));
     calendar_status_layer_create(window_layer, GRect(content_x, content_y, content_w, CALENDAR_STATUS_HEIGHT + 1)); // +1 to stop text clipping
     loading_layer_create(window_layer, GRect(content_x, weather_status_y, content_w, h - EMERY_WINDOW_PAD_BOTTOM - weather_status_y));
 #else
@@ -78,6 +99,8 @@ static void main_window_load(Window *window) {
             bounds.size.w, TIME_HEIGHT));
     calendar_layer_create(window_layer,
             GRect(0, CALENDAR_STATUS_HEIGHT, bounds.size.w, CALENDAR_HEIGHT));
+    rain_radar_layer_create(window_layer,
+            GRect(0, CALENDAR_STATUS_HEIGHT, bounds.size.w, CALENDAR_HEIGHT));
     calendar_status_layer_create(window_layer,
             GRect(0, 0, bounds.size.w, CALENDAR_STATUS_HEIGHT + 1));  // +1 to stop text clipping
     loading_layer_create(window_layer,
@@ -85,15 +108,19 @@ static void main_window_load(Window *window) {
 #endif
     loading_layer_refresh();
     app_message_send_startup_state(loading_layer_has_valid_data());
+    apply_top_view((TopView) g_config->top_view_default);
+    accel_tap_service_subscribe(tap_handler);
     MEMORY_LOG_HEAP("after_window_load");
 }
 
 static void main_window_unload(Window *window) {
+    accel_tap_service_unsubscribe();
     MEMORY_LOG_HEAP("before_window_unload");
     time_layer_destroy();
     weather_status_layer_destroy();
     forecast_layer_destroy();
     calendar_layer_destroy();
+    rain_radar_layer_destroy();
     calendar_status_layer_destroy();
     loading_layer_destroy();
     MEMORY_LOG_HEAP("after_window_unload");

@@ -26,6 +26,7 @@ typedef struct {
     GColor color_us_federal;
     GColor color_time;
     bool day_night_shading;
+    int16_t top_view_default;  // 0 = calendar, 1 = rain_radar
 } Config;
 
 extern Config *g_config;

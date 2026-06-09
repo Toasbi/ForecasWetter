@@ -3,6 +3,8 @@
 #include "c/appendix/math.h"
 #include "c/appendix/config.h"
 #include "c/appendix/memory_log.h"
+#include "c/appendix/rain_tier.h"
+#include "c/appendix/hatch.h"
 
 #define LEFT_AXIS_LABEL_STRIP_MIN_W 15
 #define LEFT_AXIS_LABEL_TO_GRAPH_GAP 2
@@ -34,25 +36,6 @@
 #define FORECAST_STEP_SECONDS (60 * 60)
 #define DAY_SECONDS (24 * 60 * 60)
 #define MAX_FORECAST_ENTRIES 24
-#define BAR_COLOR PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack)
-
-// Five-tier stepped rain scale. Each tier maps to a discrete bar height
-// (in fifths of plot_h) and is filled with a single solid color. See
-// docs/superpowers/specs/2026-06-03-rain-bar-tier-scale-design.md.
-#define RAIN_TIER_COUNT 5
-static const int RAIN_TIER_HEIGHT_FIFTHS[RAIN_TIER_COUNT] = { 1, 2, 3, 4, 5 };
-// Inclusive upper bounds in wire tenths for tiers 1..4. Tier 5 catches the rest.
-static const int RAIN_TIER_MAX_TENTHS[RAIN_TIER_COUNT - 1] = { 1, 5, 20, 100 };
-
-static int rain_tier_of_tenths(int tenths)
-{
-    // Caller must ensure tenths > 0.
-    for (int i = 0; i < RAIN_TIER_COUNT - 1; ++i)
-    {
-        if (tenths <= RAIN_TIER_MAX_TENTHS[i]) { return i + 1; }
-    }
-    return RAIN_TIER_COUNT;
-}
 
 typedef struct
 {
@@ -85,6 +68,29 @@ typedef struct
     int16_t w;
     int16_t h;
 } ForecastLayout;
+
+typedef struct {
+    int num_entries;          // clamped to MAX_FORECAST_ENTRIES
+    time_t forecast_start;
+    int16_t temps[MAX_FORECAST_ENTRIES];
+    uint8_t precip_probs[MAX_FORECAST_ENTRIES];
+    uint8_t rain_tenths[MAX_FORECAST_ENTRIES];
+    int temp_lo;
+    int temp_hi;
+} ForecastDataset;
+
+static void load_dataset(ForecastDataset *ds) {
+    const int raw = persist_get_num_entries();
+    ds->num_entries = raw > MAX_FORECAST_ENTRIES ? MAX_FORECAST_ENTRIES : raw;
+    ds->forecast_start = persist_get_forecast_start();
+    persist_get_temp_trend(ds->temps, ds->num_entries);
+    persist_get_precip_trend(ds->precip_probs, ds->num_entries);
+    persist_get_rain_trend(ds->rain_tenths, ds->num_entries);
+    int lo, hi;
+    min_max(ds->temps, ds->num_entries, &lo, &hi);
+    ds->temp_lo = lo;
+    ds->temp_hi = hi;
+}
 
 static Layer *s_forecast_layer;
 static int s_axis_left_w = LEFT_AXIS_GRAPH_INSET_DEFAULT;
@@ -238,40 +244,6 @@ static int16_t graph_x_for_time(time_t timestamp, time_t graph_start, time_t gra
     return graph_left + (int16_t)((elapsed * graph_plot_rect.size.w) / total);
 }
 
-static int16_t aligned_hatch_start_y(int16_t x, int16_t y_start, int16_t spacing)
-{
-    int16_t modulo = (x + y_start) % spacing;
-    if (modulo < 0)
-    {
-        modulo += spacing;
-    }
-
-    if (modulo == 0)
-    {
-        return y_start;
-    }
-
-    return y_start + (spacing - modulo);
-}
-
-static void draw_night_hatch_rect(GContext *ctx, GRect rect, int16_t spacing)
-{
-    if (spacing <= 0 || rect.size.w <= 0 || rect.size.h <= 0)
-    {
-        return;
-    }
-
-    const int16_t x_end = rect.origin.x + rect.size.w;
-    const int16_t y_end = rect.origin.y + rect.size.h;
-    for (int16_t x = rect.origin.x; x < x_end; ++x)
-    {
-        int16_t hatch_y = aligned_hatch_start_y(x, rect.origin.y, spacing);
-        for (int16_t y = hatch_y; y < y_end; y += spacing)
-        {
-            graphics_draw_pixel(ctx, GPoint(x, y));
-        }
-    }
-}
 
 static void draw_night_regions(GContext *ctx, GRect graph_plot_rect, time_t graph_start, time_t graph_end,
                                const NightSegments *night_segments)
@@ -286,7 +258,7 @@ static void draw_night_regions(GContext *ctx, GRect graph_plot_rect, time_t grap
 
     const int16_t hatch_spacing = NIGHT_HATCH_SPACING;
     const bool is_color = PBL_IF_COLOR_ELSE(true, false);
-    graphics_context_set_stroke_color(ctx, is_color ? NIGHT_HATCH_COLOR : GColorWhite);
+    const GColor hatch_color = is_color ? NIGHT_HATCH_COLOR : GColorWhite;
 
     for (int i = 0; i < night_segments->count; ++i)
     {
@@ -307,7 +279,7 @@ static void draw_night_regions(GContext *ctx, GRect graph_plot_rect, time_t grap
         }
 
         GRect night_rect = GRect(x0, graph_plot_rect.origin.y, x1 - x0, graph_plot_rect.size.h);
-        draw_night_hatch_rect(ctx, night_rect, hatch_spacing);
+        hatch_fill_rect(ctx, night_rect, hatch_color, hatch_spacing);
     }
 }
 
@@ -401,15 +373,11 @@ static void draw_night_hatch_over_precip(GContext *ctx, GRect graph_plot_rect, t
             }
         }
 
-        graphics_context_set_stroke_color(ctx, is_color ? NIGHT_HATCH_COLOR_PRECIP : GColorWhite);
+        const GColor hatch_color = is_color ? NIGHT_HATCH_COLOR_PRECIP : GColorWhite;
         for (int16_t x = x0; x < x1; ++x)
         {
             const int16_t precip_y = clamped_precip_top_y_for_x(graph_plot_rect, points_precip, num_entries, x);
-            int16_t hatch_y = aligned_hatch_start_y(x, precip_y, hatch_spacing);
-            for (int16_t y = hatch_y; y < y_bottom_exclusive; y += hatch_spacing)
-            {
-                graphics_draw_pixel(ctx, GPoint(x, y));
-            }
+            hatch_fill_rect(ctx, GRect(x, precip_y, 1, y_bottom_exclusive - precip_y), hatch_color, hatch_spacing);
         }
     }
 }
@@ -482,235 +450,65 @@ static void draw_night_boundaries_over_precip(GContext *ctx, GRect graph_plot_re
 
 static GSize temp_label_string_size(const char *text);
 
-static void forecast_update_proc(Layer *layer, GContext *ctx)
-{
-    MEMORY_LOG_HEAP("forecast_update:enter");
-    GRect bounds = layer_get_bounds(layer);
-    RenderSpec render_spec = make_render_spec();
-    ForecastLayout layout = compute_layout(bounds);
-    GRect graph_bounds = layout.graph_bounds;
-    GRect graph_plot_rect = layout.graph_plot_rect;
-    int w = layout.w;
-    int h = layout.h;
+static void draw_night_shading_under(GContext *ctx, GRect graph_plot_rect,
+                                     time_t forecast_start, time_t forecast_end,
+                                     const NightSegments *night_segments,
+                                     const GPoint *points_precip, int num_entries) {
+    draw_night_hatch_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                 night_segments, points_precip, num_entries);
+    draw_night_boundaries_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                       night_segments, points_precip, num_entries);
+}
 
-    // Load data from storage
-    const int raw_num_entries = persist_get_num_entries();
-    const int num_entries = raw_num_entries > MAX_FORECAST_ENTRIES ? MAX_FORECAST_ENTRIES : raw_num_entries;
-    MemoryHeapProbe redraw_probe = MEMORY_HEAP_PROBE_START("forecast_update");
-    if (num_entries < 2)
-    {
-        graphics_context_set_fill_color(ctx, GColorBlack);
-        graphics_fill_rect(ctx, bounds, 0, GCornerNone);
-        MEMORY_LOG_HEAP("forecast_update:exit");
-        return;
-    }
+static void draw_night_shading_over(GContext *ctx, GRect graph_plot_rect,
+                                    time_t forecast_start, time_t forecast_end,
+                                    const NightSegments *night_segments) {
+    draw_night_regions(ctx, graph_plot_rect, forecast_start, forecast_end, night_segments);
+    draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, night_segments);
+}
 
-    const time_t forecast_start = persist_get_forecast_start();
-    const time_t forecast_end = forecast_start + (num_entries - 1) * FORECAST_STEP_SECONDS;
-    NightSegments night_segments = {0};
-    struct tm *forecast_start_local = localtime(&forecast_start);
-    int16_t temps[num_entries];
-    uint8_t precips[num_entries];
-    persist_get_temp_trend(temps, num_entries);
-    persist_get_precip_trend(precips, num_entries);
-    uint8_t rain_tenths[num_entries];
-    persist_get_rain_trend(rain_tenths, num_entries);
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "rain_tenths[0..7]=%u,%u,%u,%u,%u,%u,%u,%u",
-            rain_tenths[0], rain_tenths[1], rain_tenths[2], rain_tenths[3],
-            rain_tenths[4], rain_tenths[5], rain_tenths[6], rain_tenths[7]);
+static void draw_rain_bars(GContext *ctx, GRect plot_rect,
+                           const uint8_t *rain_tenths, int num_entries) {
+    rain_bars_draw(ctx, plot_rect, rain_tenths, num_entries);
+}
 
-    // Allocate point arrays for plots
-    // Calculate the temperature range
-    int lo, hi;
-    min_max(temps, num_entries, &lo, &hi);
-    int range = hi - lo;
-    const int temp_plot_h = h - MARGIN_TEMP_H * 2 - BOTTOM_AXIS_H;
-    const int range_safe = range > 0 ? range : 1;
-
-    // Draw a bounding box for each data entry (the -1 is since we don't want a gap on either side)
-    float entry_w = (float)graph_bounds.size.w / (num_entries - 1);
-    if (render_spec.draw_night_overlay)
-    {
-        night_segments = compute_night_segments(forecast_start, forecast_end);
-    }
-
-    graphics_context_set_text_color(ctx, GColorWhite);
-    graphics_context_set_stroke_color(ctx, GColorLightGray);
-
-    // Round this division up by adding (divisor - 1) to the dividend.
-    const int entries_per_label = ((float)HOUR_LABEL_MIN_SPACING + (entry_w - 1)) / entry_w;
-    for (int i = 0; i < num_entries; ++i)
-    {
-        int entry_x = graph_bounds.origin.x + i * entry_w;
-
-        // Save a point for the precipitation probability
-        int precip = precips[i];
-        int precip_h = (float)precip / 100.0 * (h - BOTTOM_AXIS_H);
+static void draw_precip_area(GContext *ctx, GRect graph_bounds, int h,
+                             const uint8_t *precips, int num_entries) {
+    const float entry_w = (float) graph_bounds.size.w / (num_entries - 1);
+    for (int i = 0; i < num_entries; ++i) {
+        const int entry_x = graph_bounds.origin.x + i * entry_w;
+        const int precip = precips[i];
+        const int precip_h = (float) precip / 100.0 * (h - BOTTOM_AXIS_H);
         s_points_precip[i] = GPoint(entry_x, h - BOTTOM_AXIS_H - precip_h);
-
-        // Save a point for the temperature reading
-        int temp = temps[i];
-        int temp_h = temp_plot_h / 2;
-        if (range > 0)
-        {
-            temp_h = (int)(((int32_t)(temp - lo) * temp_plot_h) / range_safe);
-        }
-        s_points_temp[i] = GPoint(entry_x, h - temp_h - MARGIN_TEMP_H - BOTTOM_AXIS_H);
-
-        // emery: draw emphasized major/minor bottom-axis ticks for improved readability.
-#ifdef PBL_PLATFORM_EMERY
-        const bool is_label_tick = (i % entries_per_label) == 0;
-        const GColor tick_color = is_label_tick ? GColorLightGray : GColorDarkGray;
-        graphics_context_set_stroke_width(ctx, 1);
-        graphics_context_set_stroke_color(ctx, tick_color);
-        graphics_draw_line(ctx,
-                           GPoint(entry_x, h - BOTTOM_AXIS_H - 0),
-                           GPoint(entry_x, h - BOTTOM_AXIS_H + (is_label_tick ? 6 : 4)));
-#endif
     }
-
-// non-emery: draw labels with classic font-offset positioning and midpoint ticks.
-#ifndef PBL_PLATFORM_EMERY
-    for (int label_i = 0; label_i < num_entries; label_i += entries_per_label)
-    {
-        const int label_x = graph_bounds.origin.x + (int)(label_i * entry_w);
-        char buf[4];
-
-        snprintf(buf, sizeof(buf), "%d", config_axis_hour(forecast_start_local->tm_hour + label_i));
-        const int label_y = h - BOTTOM_AXIS_H - BOTTOM_AXIS_FONT_OFFSET;
-        const int label_h = BOTTOM_AXIS_H;
-        graphics_draw_text(ctx, buf,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(label_x - 20, label_y, 40, label_h),
-                           GTextOverflowModeWordWrap,
-                           GTextAlignmentCenter,
-                           NULL);
-
-        const int next_label_i = label_i + entries_per_label;
-        const int midpoint_i = label_i + entries_per_label / 2;
-        if (midpoint_i > label_i && midpoint_i < next_label_i && midpoint_i < num_entries)
-        {
-            const int tick_x = graph_bounds.origin.x + (int)(midpoint_i * entry_w);
-            graphics_draw_line(ctx,
-                               GPoint(tick_x, h - BOTTOM_AXIS_H - 0),
-                               GPoint(tick_x, h - BOTTOM_AXIS_H + 4));
-        }
-    }
-// emery: draw labels lower in the reserved pad and skip midpoint tick loop.
-#else
-    for (int label_i = 0; label_i < num_entries; label_i += entries_per_label)
-    {
-        const int label_x = graph_bounds.origin.x + (int)(label_i * entry_w);
-        char buf[4];
-
-        snprintf(buf, sizeof(buf), "%d", config_axis_hour(forecast_start_local->tm_hour + label_i));
-        const int label_y = h - BOTTOM_AXIS_H + EMERY_AXIS_LABEL_TOP;
-        const int label_h = EMERY_AXIS_LABEL_H;
-        graphics_draw_text(ctx, buf,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(label_x - 20, label_y, 40, label_h),
-                           GTextOverflowModeWordWrap,
-                           GTextAlignmentCenter,
-                           NULL);
-    }
-#endif
-
-    // Complete the area under the precipitation
-    s_points_precip[num_entries] = GPoint(graph_bounds.origin.x + w, h - BOTTOM_AXIS_H);
+    s_points_precip[num_entries]     = GPoint(graph_bounds.origin.x + graph_bounds.size.w, h - BOTTOM_AXIS_H);
     s_points_precip[num_entries + 1] = GPoint(graph_bounds.origin.x, h - BOTTOM_AXIS_H);
 
-    // Fill the precipitation area
     s_path_precip_area_under.num_points = num_entries + 2;
     s_path_precip_area_under.points = s_points_precip;
-    MEMORY_HEAP_PROBE_SAMPLE("before_precip_path_draw", &redraw_probe);
     graphics_context_set_fill_color(ctx, PRECIP_FILL_COLOR);
     gpath_draw_filled(ctx, &s_path_precip_area_under);
-    MEMORY_HEAP_PROBE_SAMPLE("after_precip_path_draw", &redraw_probe);
+}
 
-    if (render_spec.draw_night_overlay)
-    {
-        draw_night_hatch_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments,
-                                     s_points_precip, num_entries);
-        draw_night_boundaries_over_precip(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments,
-                                          s_points_precip, num_entries);
-    }
-
-    // Rain-amount bars. Five discrete heights (1/5..5/5 plot_h) encode tier;
-    // each bar is a single solid tier color. The night-region hatch is drawn
-    // immediately after this block so it paints visibly on top of the bars.
-    const int16_t bar_plot_h = graph_plot_rect.size.h;
-    const int16_t bar_plot_bottom = graph_plot_rect.origin.y + bar_plot_h;
-    // Bar starts 1 px right of the hour-marker column and is 2 px thinner
-    // than the slot, leaving the marker pixel clear and a 1 px gap before
-    // the next bar. Falls back to 1 px when the slot is too narrow.
-    const int bar_w = (entry_w >= 3.0f) ? (int)entry_w - 2 : 1;
-    for (int i = 0; i < num_entries; ++i)
-    {
-        int tenths = rain_tenths[i];
-        if (tenths <= 0) { continue; }
-
-        const int tier = rain_tier_of_tenths(tenths);
-        int bar_h = (bar_plot_h * RAIN_TIER_HEIGHT_FIFTHS[tier - 1]) / 5;
-        if (bar_h <= 0) { bar_h = 1; }
-
-        const int bar_x = graph_bounds.origin.x + (int)(i * entry_w) + 1;
-        const int bar_top_y = bar_plot_bottom - bar_h;
-
-        GColor fill = BAR_COLOR;
-#ifdef PBL_COLOR
-        switch (tier)
-        {
-            case 2: fill = GColorCobaltBlue; break;
-            case 3: fill = GColorGreen;      break;
-            case 4: fill = GColorOrange;     break;
-            case 5: fill = GColorRed;        break;
-            default: break;  // tier 1: BAR_COLOR (white)
-        }
-#endif
-        graphics_context_set_fill_color(ctx, fill);
-        graphics_fill_rect(ctx, GRect(bar_x, bar_top_y, bar_w, bar_h), 0, GCornerNone);
-    }
-
-    // Night-region hatch overlays the bars so day/night is still readable
-    // during rain. The over-precip pass above already handled the precip-
-    // area variant; this paints the broader plot-rect hatch + boundary lines.
-    if (render_spec.draw_night_overlay)
-    {
-        draw_night_regions(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments);
-        draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, &night_segments);
-    }
-
-    // Draw the precipitation line
+static void draw_precip_top_line(GContext *ctx, int num_entries) {
     s_path_precip_top.num_points = num_entries;
     s_path_precip_top.points = s_points_precip;
-    MEMORY_HEAP_PROBE_SAMPLE("before_precip_top_draw", &redraw_probe);
     graphics_context_set_stroke_color(ctx, GColorPictonBlue);
     graphics_context_set_stroke_width(ctx, 1);
     gpath_draw_outline_open(ctx, &s_path_precip_top);
-    MEMORY_HEAP_PROBE_SAMPLE("after_precip_top_draw", &redraw_probe);
+}
 
-    // Draw the temperature line
-    s_path_temp.num_points = num_entries;
-    s_path_temp.points = s_points_temp;
-    MEMORY_HEAP_PROBE_SAMPLE("before_temp_path_draw", &redraw_probe);
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorRed, GColorWhite));
-    graphics_context_set_stroke_width(ctx, 3); // Only odd stroke width values supported
-    gpath_draw_outline_open(ctx, &s_path_temp);
-    MEMORY_HEAP_PROBE_SAMPLE("after_temp_path_draw", &redraw_probe);
-
-    // Draw a line for the bottom axis
-    graphics_context_set_stroke_color(ctx, render_spec.axis_color);
-    graphics_context_set_stroke_width(ctx, 1);
+static void draw_left_axis(GContext *ctx, int h, GRect graph_bounds) {
     const int16_t axis_y = h - BOTTOM_AXIS_H;
-    graphics_draw_line(ctx, GPoint(graph_bounds.origin.x, axis_y), GPoint(graph_bounds.origin.x + w, axis_y));
-    // And for the left side axis
+
     graphics_context_set_fill_color(ctx, GColorBlack);
-    graphics_fill_rect(ctx, GRect(0, 0, s_axis_left_w, h - BOTTOM_AXIS_H), 0, GCornerNone); // Paint over plot bleeding
+    graphics_fill_rect(ctx, GRect(0, 0, s_axis_left_w, h - BOTTOM_AXIS_H), 0, GCornerNone);
+    graphics_context_set_stroke_width(ctx, 1);
     graphics_draw_line(ctx, GPoint(graph_bounds.origin.x, 0), GPoint(graph_bounds.origin.x, axis_y));
+
     graphics_context_set_text_color(ctx, GColorWhite);
     GSize hi_size = temp_label_string_size(s_buffer_hi);
     GSize lo_size = temp_label_string_size(s_buffer_lo);
-    // emery: anchor hi/lo labels to the top/bottom of the axis strip to avoid clipping.
 #ifdef PBL_PLATFORM_EMERY
     const int hi_y = 0;
     const int lo_y = axis_y - lo_size.h - 2;
@@ -726,6 +524,144 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
                        fonts_get_system_font(FONT_KEY_GOTHIC_18),
                        GRect(0, lo_y, s_label_strip_w, lo_size.h),
                        GTextOverflowModeFill, GTextAlignmentRight, NULL);
+}
+
+static void draw_bottom_axis(GContext *ctx, int h, GRect graph_bounds,
+                             int num_entries, struct tm *forecast_start_local,
+                             RenderSpec render_spec) {
+    const int16_t axis_y = h - BOTTOM_AXIS_H;
+
+    // Bottom horizontal axis line (was drawn at the end of the original
+    // update_proc just before the left-axis block).
+    graphics_context_set_stroke_color(ctx, render_spec.axis_color);
+    graphics_context_set_stroke_width(ctx, 1);
+    graphics_draw_line(ctx, GPoint(graph_bounds.origin.x, axis_y),
+                       GPoint(graph_bounds.origin.x + graph_bounds.size.w, axis_y));
+
+    const float entry_w = (float) graph_bounds.size.w / (num_entries - 1);
+    const int entries_per_label = ((float)HOUR_LABEL_MIN_SPACING + (entry_w - 1)) / entry_w;
+
+    graphics_context_set_text_color(ctx, GColorWhite);
+    graphics_context_set_stroke_color(ctx, GColorLightGray);
+
+#ifdef PBL_PLATFORM_EMERY
+    for (int i = 0; i < num_entries; ++i) {
+        const int entry_x = graph_bounds.origin.x + i * entry_w;
+        const bool is_label_tick = (i % entries_per_label) == 0;
+        const GColor tick_color = is_label_tick ? GColorLightGray : GColorDarkGray;
+        graphics_context_set_stroke_width(ctx, 1);
+        graphics_context_set_stroke_color(ctx, tick_color);
+        graphics_draw_line(ctx,
+                           GPoint(entry_x, h - BOTTOM_AXIS_H - 0),
+                           GPoint(entry_x, h - BOTTOM_AXIS_H + (is_label_tick ? 6 : 4)));
+    }
+    for (int label_i = 0; label_i < num_entries; label_i += entries_per_label) {
+        const int label_x = graph_bounds.origin.x + (int)(label_i * entry_w);
+        char buf[4];
+        snprintf(buf, sizeof(buf), "%d", config_axis_hour(forecast_start_local->tm_hour + label_i));
+        const int label_y = h - BOTTOM_AXIS_H + EMERY_AXIS_LABEL_TOP;
+        const int label_h = EMERY_AXIS_LABEL_H;
+        graphics_draw_text(ctx, buf,
+                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                           GRect(label_x - 20, label_y, 40, label_h),
+                           GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+    }
+#else
+    for (int label_i = 0; label_i < num_entries; label_i += entries_per_label) {
+        const int label_x = graph_bounds.origin.x + (int)(label_i * entry_w);
+        char buf[4];
+        snprintf(buf, sizeof(buf), "%d", config_axis_hour(forecast_start_local->tm_hour + label_i));
+        const int label_y = h - BOTTOM_AXIS_H - BOTTOM_AXIS_FONT_OFFSET;
+        const int label_h = BOTTOM_AXIS_H;
+        graphics_draw_text(ctx, buf,
+                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
+                           GRect(label_x - 20, label_y, 40, label_h),
+                           GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+
+        const int next_label_i = label_i + entries_per_label;
+        const int midpoint_i = label_i + entries_per_label / 2;
+        if (midpoint_i > label_i && midpoint_i < next_label_i && midpoint_i < num_entries) {
+            const int tick_x = graph_bounds.origin.x + (int)(midpoint_i * entry_w);
+            graphics_draw_line(ctx,
+                               GPoint(tick_x, h - BOTTOM_AXIS_H - 0),
+                               GPoint(tick_x, h - BOTTOM_AXIS_H + 4));
+        }
+    }
+#endif
+}
+
+static void draw_temp_line(GContext *ctx, GRect graph_bounds, int h,
+                           const int16_t *temps, int num_entries, int lo, int hi) {
+    const int temp_plot_h = h - MARGIN_TEMP_H * 2 - BOTTOM_AXIS_H;
+    const int range = hi - lo;
+    const int range_safe = range > 0 ? range : 1;
+    const float entry_w = (float) graph_bounds.size.w / (num_entries - 1);
+
+    for (int i = 0; i < num_entries; ++i) {
+        const int entry_x = graph_bounds.origin.x + i * entry_w;
+        int temp_h = temp_plot_h / 2;
+        if (range > 0) {
+            temp_h = (int)(((int32_t)(temps[i] - lo) * temp_plot_h) / range_safe);
+        }
+        s_points_temp[i] = GPoint(entry_x, h - temp_h - MARGIN_TEMP_H - BOTTOM_AXIS_H);
+    }
+
+    s_path_temp.num_points = num_entries;
+    s_path_temp.points = s_points_temp;
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorRed, GColorWhite));
+    graphics_context_set_stroke_width(ctx, 3);
+    gpath_draw_outline_open(ctx, &s_path_temp);
+}
+
+static void forecast_update_proc(Layer *layer, GContext *ctx)
+{
+    MEMORY_LOG_HEAP("forecast_update:enter");
+    GRect bounds = layer_get_bounds(layer);
+    RenderSpec render_spec = make_render_spec();
+    ForecastLayout layout = compute_layout(bounds);
+    GRect graph_bounds = layout.graph_bounds;
+    GRect graph_plot_rect = layout.graph_plot_rect;
+    int h = layout.h;
+
+    ForecastDataset ds;
+    load_dataset(&ds);
+    MemoryHeapProbe redraw_probe = MEMORY_HEAP_PROBE_START("forecast_update");
+    if (ds.num_entries < 2)
+    {
+        graphics_context_set_fill_color(ctx, GColorBlack);
+        graphics_fill_rect(ctx, bounds, 0, GCornerNone);
+        MEMORY_LOG_HEAP("forecast_update:exit");
+        return;
+    }
+    const time_t forecast_start = ds.forecast_start;
+    const time_t forecast_end = forecast_start + (ds.num_entries - 1) * FORECAST_STEP_SECONDS;
+    struct tm *forecast_start_local = localtime(&forecast_start);
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "rain_tenths[0..7]=%u,%u,%u,%u,%u,%u,%u,%u",
+            ds.rain_tenths[0], ds.rain_tenths[1], ds.rain_tenths[2], ds.rain_tenths[3],
+            ds.rain_tenths[4], ds.rain_tenths[5], ds.rain_tenths[6], ds.rain_tenths[7]);
+
+    NightSegments night_segments = {0};
+    if (render_spec.draw_night_overlay)
+    {
+        night_segments = compute_night_segments(forecast_start, forecast_end);
+    }
+
+    draw_precip_area(ctx, graph_bounds, h, ds.precip_probs, ds.num_entries);
+    if (render_spec.draw_night_overlay)
+    {
+        draw_night_shading_under(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                 &night_segments, s_points_precip, ds.num_entries);
+    }
+    draw_rain_bars(ctx, graph_plot_rect, ds.rain_tenths, ds.num_entries);
+    if (render_spec.draw_night_overlay)
+    {
+        draw_night_shading_over(ctx, graph_plot_rect, forecast_start, forecast_end,
+                                &night_segments);
+    }
+    draw_precip_top_line(ctx, ds.num_entries);
+    draw_temp_line(ctx, graph_bounds, h, ds.temps, ds.num_entries, ds.temp_lo, ds.temp_hi);
+    draw_bottom_axis(ctx, h, graph_bounds, ds.num_entries, forecast_start_local, render_spec);
+    draw_left_axis(ctx, h, graph_bounds);
     MEMORY_HEAP_PROBE_LOG_MIN(&redraw_probe);
     MEMORY_LOG_HEAP("forecast_update:exit");
 }

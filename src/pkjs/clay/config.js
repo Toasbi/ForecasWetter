@@ -180,6 +180,23 @@ module.exports = [
                 "description": "Show hatch shading between sunset and sunrise to distinguish day and night on the forecast graph."
             },
             {
+                "type": "select",
+                "label": "Top view default",
+                "messageKey": "topViewDefault",
+                "defaultValue": "calendar",
+                "description": "Which view to show at the top by default. Tap the watch to toggle between calendar and rain radar.",
+                "options": [
+                    {
+                        "label": "Calendar",
+                        "value": "calendar"
+                    },
+                    {
+                        "label": "Rain radar",
+                        "value": "rain_radar"
+                    }
+                ]
+            },
+            {
                 "type": "radiogroup",
                 "label": "Provider",
                 "messageKey": "provider",

@@ -195,3 +195,7 @@ void calendar_layer_destroy() {
     layer_destroy(s_calendar_layer);
     MEMORY_LOG_HEAP("calendar_layer_destroy:after");
 }
+
+Layer *calendar_layer_get_root(void) {
+    return s_calendar_layer;
+}

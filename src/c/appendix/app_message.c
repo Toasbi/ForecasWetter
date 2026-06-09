@@ -6,6 +6,7 @@
 #include "c/layers/loading_layer.h"
 #include "c/layers/calendar_layer.h"
 #include "c/layers/calendar_status_layer.h"
+#include "c/layers/rain_radar_layer.h"
 #include "c/windows/main_window.h"
 #include "memory_log.h"
 
@@ -39,6 +40,12 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     Tuple *clay_color_us_federal_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_COLOR_US_FEDERAL);
     Tuple *clay_color_time_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_COLOR_TIME);
     Tuple *clay_day_night_shading_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_DAY_NIGHT_SHADING);
+    Tuple *clay_top_view_default_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_TOP_VIEW_DEFAULT);
+
+    // Rain-radar payload keys
+    Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
+    Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
+    Tuple *rain_radar_start_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_START);
 
     if(temp_trend_tuple && temp_trend_tuple && forecast_start_tuple && num_entries_tuple && city_tuple && sun_events_tuple) {
         // Weather data received
@@ -76,10 +83,27 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         calendar_layer_refresh();
         calendar_status_layer_refresh();
     }
+    else if (rain_radar_exact_tuple && rain_radar_area_tuple && rain_radar_start_tuple) {
+        APP_LOG(APP_LOG_LEVEL_INFO, "Rain-radar payload received");
+        persist_set_rain_radar_trend(
+            (uint8_t*) rain_radar_exact_tuple->value->data, 24);
+        persist_set_rain_radar_trend_area(
+            (uint8_t*) rain_radar_area_tuple->value->data, 24);
+        persist_set_rain_radar_start(
+            (time_t) rain_radar_start_tuple->value->int32);
+        rain_radar_layer_refresh();
+    } else if (rain_radar_exact_tuple || rain_radar_area_tuple) {
+        // Partial radar payload — log and skip.
+        APP_LOG(APP_LOG_LEVEL_WARNING,
+                "Rain-radar payload incomplete (exact=%d area=%d start=%d) — skipping",
+                rain_radar_exact_tuple != NULL,
+                rain_radar_area_tuple  != NULL,
+                rain_radar_start_tuple != NULL);
+    }
     else if (clay_celsius_tuple && clay_time_lead_zero_tuple && clay_axis_12h_tuple && clay_start_mon_tuple && clay_prev_week_tuple
         && clay_color_today_tuple && clay_time_font_tuple && clay_vibe_tuple && clay_show_qt_tuple && clay_show_bt_tuple
         && clay_show_bt_disconnect_tuple && clay_show_am_pm_tuple && clay_color_saturday_tuple && clay_color_sunday_tuple
-        && clay_color_us_federal_tuple && clay_color_time_tuple && clay_day_night_shading_tuple) {
+        && clay_color_us_federal_tuple && clay_color_time_tuple && clay_day_night_shading_tuple && clay_top_view_default_tuple) {
         // Clay config data received
         bool clay_celsius = (bool) (clay_celsius_tuple->value->int16);
         bool time_lead_zero = (bool) (clay_time_lead_zero_tuple->value->int16);
@@ -92,6 +116,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         bool show_bt_disconnect = (bool) (clay_show_bt_disconnect_tuple->value->int16);
         bool show_am_pm = (bool) (clay_show_am_pm_tuple->value->int16);
         bool day_night_shading = (bool) (clay_day_night_shading_tuple->value->int16);
+        int16_t top_view_default = clay_top_view_default_tuple->value->int16;
         int16_t time_font = clay_time_font_tuple->value->int16;
         GColor color_today = GColorFromHEX(clay_color_today_tuple->value->int32);
         GColor color_saturday = GColorFromHEX(clay_color_saturday_tuple->value->int32);
@@ -115,7 +140,8 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
             .color_sunday = color_sunday,
             .color_us_federal = color_us_federal,
             .color_time = color_time,
-            .day_night_shading = day_night_shading
+            .day_night_shading = day_night_shading,
+            .top_view_default = top_view_default
         };
         persist_set_config(config);
         main_window_refresh();
