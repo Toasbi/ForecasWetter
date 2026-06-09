@@ -43,6 +43,9 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     Tuple *clay_day_night_shading_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_DAY_NIGHT_SHADING);
     Tuple *clay_top_view_default_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_TOP_VIEW_DEFAULT);
 
+    // Sleep-mode key (rides on both weather and Clay payloads)
+    Tuple *is_sleeping_tuple = dict_find(iterator, MESSAGE_KEY_IS_SLEEPING);
+
     // Rain-radar payload keys (may be bundled with weather)
     Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
     Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
@@ -154,6 +157,16 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         };
         persist_set_config(config);
         main_window_refresh();
+        handled = true;
+    }
+
+    if (is_sleeping_tuple) {
+        bool new_is_sleeping = (bool) (is_sleeping_tuple->value->int16);
+        bool prev_is_sleeping = persist_get_is_sleeping();
+        if (new_is_sleeping != prev_is_sleeping) {
+            persist_set_is_sleeping(new_is_sleeping);
+            weather_status_layer_refresh();
+        }
         handled = true;
     }
 
