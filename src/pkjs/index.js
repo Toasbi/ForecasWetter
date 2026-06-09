@@ -1139,5 +1139,7 @@ function needRefresh() {
     var intervalMs = app.settings.fetchIntervalMin * 60 * 1000;
     var lastSlot = Math.floor(lastTimeMs / intervalMs);
     var nowSlot = Math.floor(Date.now() / intervalMs);
-    return nowSlot > lastSlot;
+    if (nowSlot <= lastSlot) return false;
+    if (isSleepingNow() && app.lastIsSleeping === true) return false;
+    return true;
 }
