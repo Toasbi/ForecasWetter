@@ -47,11 +47,17 @@ var KEY_LAST_FETCH_ATTEMPT = storageKeys.LAST_FETCH_ATTEMPT_KEY;
 var KEY_GEOCODE_CACHE = storageKeys.GEOCODE_CACHE_KEY;
 var KEY_GEOCODE_BACKOFF = storageKeys.GEOCODE_BACKOFF_KEY;
 var KEY_V1_34_0_WEEKEND_HOLIDAY_COLOR_MIGRATION = 'v1.34.0_weekend_holiday_color_migration';
+var KEY_LAST_IS_SLEEPING = storageKeys.LAST_IS_SLEEPING_KEY;
 var DEFAULT_COLOR_WHITE = pebbleColors.GColorWhite;
 var DEFAULT_COLOR_FOLLY = pebbleColors.GColorFolly;
 
 app.fetchInProgress = false;
 app.pendingStartupFetch = false;
+
+(function initLastIsSleeping() {
+    var raw = localStorage.getItem(KEY_LAST_IS_SLEEPING);
+    app.lastIsSleeping = raw === 'true';   // default false when missing
+})();
 
 Pebble.addEventListener('appmessage', function(e) {
     var payload = e && e.payload;
@@ -1096,6 +1102,21 @@ function inCustomWindow(now) {
 
 function isSleepingNow() {
     return inCustomWindow(new Date());
+}
+
+/**
+ * Compute the current sleep state, persist it for the next needRefresh()
+ * call, and return it so the caller can include it in a payload.
+ *
+ * Call this exactly once per outbound message that carries IS_SLEEPING.
+ *
+ * @returns {boolean} Current sleep state.
+ */
+function refreshLastIsSleeping() {
+    var sleeping = isSleepingNow();
+    app.lastIsSleeping = sleeping;
+    localStorage.setItem(KEY_LAST_IS_SLEEPING, sleeping ? 'true' : 'false');
+    return sleeping;
 }
 
 function needRefresh() {
