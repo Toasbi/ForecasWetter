@@ -1,6 +1,17 @@
 var meta = require('../../../package.json');
 var versionLabel = "v" + meta.version + (meta.buildProfile === "dev" ? " (dev)" : "");
 
+var HOUR_OPTIONS = (function() {
+    var hours = [];
+    for (var h = 0; h < 24; h += 1) {
+        hours.push({
+            "label": (h < 10 ? "0" + h : String(h)) + ":00",
+            "value": String(h)
+        });
+    }
+    return hours;
+})();
+
 module.exports = [
     {
         "type": "heading",
@@ -242,6 +253,27 @@ module.exports = [
                         "value": "60"
                     }
                 ]
+            },
+            {
+                "type": "toggle",
+                "label": "Pause weather at night",
+                "messageKey": "sleepNightEnabled",
+                "defaultValue": false,
+                "description": "Stop fetching weather between the hours below to save battery. The current-temperature reading is replaced with 'Zz' until morning. Rain-radar data will also become stale during this window."
+            },
+            {
+                "type": "select",
+                "label": "From",
+                "messageKey": "sleepStartHour",
+                "defaultValue": "22",
+                "options": HOUR_OPTIONS
+            },
+            {
+                "type": "select",
+                "label": "To",
+                "messageKey": "sleepEndHour",
+                "defaultValue": "7",
+                "options": HOUR_OPTIONS
             },
             {
                 "type": "toggle",
