@@ -8,30 +8,27 @@ var NEARBY_RADIUS_KM = 2;      // disk radius for the "nearby" max signal; radar
 var SLOT_SECONDS = 5 * 60;     // wire-side slot width; must match RADAR_SLOT_SECONDS on the watch
 
 /**
- * Fallback radar-start epoch when we can't read it off the response: the
- * next 5-minute wall-clock boundary strictly after now. Brightsky frames
- * land on wall-clock 5-min boundaries, so the kept slot-0 frame is at
- * floor(now/5min)*5min + 5min.
- *
- * @returns {number} Unix epoch seconds, multiple of SLOT_SECONDS.
- */
-function nextSlotBoundaryEpoch() {
-    var nowSec = Math.floor(Date.now() / 1000);
-    return Math.floor(nowSec / SLOT_SECONDS) * SLOT_SECONDS + SLOT_SECONDS;
-}
-
-/**
  * Build the URL for the Brightsky /radar request.
+ *
+ * Anchors `date` at slotZeroEpoch and `last_date` one second short of
+ * slotZeroEpoch + NUM_BARS * SLOT_SECONDS, so Brightsky returns exactly
+ * NUM_BARS forward-looking nowcast frames in order.
  *
  * @param {number} lat Latitude in decimal degrees.
  * @param {number} lon Longitude in decimal degrees.
+ * @param {number} slotZeroEpoch Slot-0 wall-clock epoch seconds.
  * @returns {string} Fully-formed request URL.
  */
-function buildRadarUrl(lat, lon) {
+function buildRadarUrl(lat, lon, slotZeroEpoch) {
+    var windowSeconds = NUM_BARS * SLOT_SECONDS;
+    var startIso = new Date(slotZeroEpoch * 1000).toISOString();
+    var endIso = new Date((slotZeroEpoch + windowSeconds - 1) * 1000).toISOString();
     return BRIGHTSKY_BASE + '/radar'
         + '?lat=' + lat
         + '&lon=' + lon
         + '&distance=' + DISTANCE_METERS
+        + '&date=' + encodeURIComponent(startIso)
+        + '&last_date=' + encodeURIComponent(endIso)
         + '&format=plain';
 }
 
@@ -186,21 +183,25 @@ function gridCentre(grid) {
  * zeros via onSuccess. Network or parse errors invoke onFailure with
  * `{stage: 'radar', code: ...}`.
  *
- * `startEpoch` is the wall-clock timestamp of slot 0 (the first kept
- * frame after dropping the "now" frame), in Unix epoch seconds. Read
- * from Brightsky's frame timestamp so it lands on a 5-min boundary;
- * the watch's hour-axis tick suppression relies on this alignment.
+ * Slot-0 is anchored at the caller-supplied `slotZeroEpoch` (the watch's
+ * "5-min pinned" wall-clock boundary). The URL builder asks Brightsky
+ * for exactly the forward-looking window [slotZeroEpoch, slotZeroEpoch
+ * + NUM_BARS * SLOT_SECONDS), and Brightsky returns the matching
+ * NUM_BARS frames in order — body.radar maps directly to slots 0..23.
  *
  * @param {number} lat Latitude in decimal degrees.
  * @param {number} lon Longitude in decimal degrees.
+ * @param {number} slotZeroEpoch Slot-0 wall-clock epoch seconds (must be a
+ *   multiple of SLOT_SECONDS). RAIN_RADAR_START on the wire equals this.
  * @param {Function} onSuccess Receives `{ exact, nearby_1km, startEpoch }`,
- *   where the two arrays are 24-entry uint8 (mm/h * 10) and startEpoch is
- *   slot 0's Unix epoch seconds.
+ *   where the two arrays are 24-entry uint8 (mm/h * 10) and startEpoch
+ *   equals slotZeroEpoch (echoed back for callers that want a single
+ *   source of truth).
  * @param {Function} onFailure Receives a `{stage, code}` failure object.
  * @returns {void}
  */
-function withRadar2hRain(lat, lon, onSuccess, onFailure) {
-    var url = buildRadarUrl(lat, lon);
+function withRadar2hRain(lat, lon, slotZeroEpoch, onSuccess, onFailure) {
+    var url = buildRadarUrl(lat, lon, slotZeroEpoch);
     console.log('Requesting ' + url);
 
     request(
@@ -226,32 +227,15 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 onSuccess({
                     exact: zeroBars(),
                     nearby_1km: zeroBars(),
-                    startEpoch: nextSlotBoundaryEpoch()
+                    startEpoch: slotZeroEpoch
                 });
                 return;
             }
-            // Drop the first ("now") frame; the remaining frames cover
-            // t+5 min .. t+120 min — exactly 24 5-minute bars.
-            var frames = body.radar.slice(1);
+            var frames = body.radar;
             var xy = body.latlon_position;
             var hasXy = Boolean(xy && isFinite(xy.x) && isFinite(xy.y));
             var exactOut = zeroBars();
             var nearbyOut = zeroBars();
-            // RAIN_RADAR_START is contractually a 5-min wall-clock
-            // boundary — the watch's hour-axis tick suppression compares
-            // slot epochs (radar_start + i*300) directly against whole
-            // hours, so any sub-5-min offset would silently break the
-            // alignment. Snap to the nearest SLOT_SECONDS boundary even
-            // though Brightsky timestamps already land on the grid; the
-            // round() is defence against millisecond fields in the
-            // response or any future parser drift in JerryScript.
-            var startEpoch = nextSlotBoundaryEpoch();
-            if (frames.length > 0 && frames[0] && typeof frames[0].timestamp === 'string') {
-                var parsedMs = Date.parse(frames[0].timestamp);
-                if (isFinite(parsedMs)) {
-                    startEpoch = Math.round(parsedMs / 1000 / SLOT_SECONDS) * SLOT_SECONDS;
-                }
-            }
             var i;
             var frame;
             var grid;
@@ -285,7 +269,7 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 exactOut[i] = scaleToWireUnits(exactRaw);
                 nearbyOut[i] = scaleToWireUnits(nearbyRaw);
             }
-            onSuccess({ exact: exactOut, nearby_1km: nearbyOut, startEpoch: startEpoch });
+            onSuccess({ exact: exactOut, nearby_1km: nearbyOut, startEpoch: slotZeroEpoch });
         },
         function(error) {
             console.log('[!] Radar request failed: ' + JSON.stringify(error));

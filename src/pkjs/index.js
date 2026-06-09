@@ -939,12 +939,20 @@ function sendFixtureWeather(fixture) {
  */
 function withRainRadarTuples(provider, callback) {
     var radar = require('./weather/radar.js');
+    // RAIN_RADAR_START is the watch's "5-min pinned" slot-0 epoch: the
+    // most recent wall-clock 5-min boundary at or before dispatch (so at
+    // 16:53 the radar starts at 16:50). Computed here rather than read
+    // off the Brightsky response because Brightsky's /radar window is
+    // centred ~1h behind real time, so picking slot-0 off the response
+    // would peg the radar to past data under live-looking labels.
+    var RADAR_SLOT_SECONDS = 5 * 60;
+    var slotZeroEpoch = Math.floor(Date.now() / 1000 / RADAR_SLOT_SECONDS) * RADAR_SLOT_SECONDS;
     provider.withCoordinates(function(lat, lon) {
-        radar.withRadar2hRain(lat, lon, function(result) {
+        radar.withRadar2hRain(lat, lon, slotZeroEpoch, function(result) {
             callback({
                 "RAIN_RADAR_TREND_UINT8": result.exact,
                 "RAIN_RADAR_TREND_AREA_UINT8": result.nearby_1km,
-                "RAIN_RADAR_START": result.startEpoch
+                "RAIN_RADAR_START": slotZeroEpoch
             });
         }, function(err) {
             console.log('Rain-radar fetch failed: ' + JSON.stringify(err));
