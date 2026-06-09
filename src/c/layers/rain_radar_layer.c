@@ -40,16 +40,21 @@
 static Layer *s_radar_layer;
 
 // True when tick index `i` (0..RADAR_NUM_ENTRIES) lands exactly on a
-// whole-hour wall-clock boundary, given `radar_start`. Returns false
-// when radar_start <= 0 (no time info available) so all ticks render.
-// Only the exact-hour tick is suppressed — adjacent slot ticks stay
-// drawn so the 5-min rhythm reads uniform right next to the hour label.
+// whole-hour wall-clock boundary that will actually carry a label,
+// given `radar_start`. The label loop draws hours strictly inside the
+// window (radar_start < hr < radar_end), so the slot-0 and slot-24
+// ticks at the window edges aren't suppressed even when radar_start
+// happens to be hour-aligned. Returns false when radar_start <= 0 (no
+// time info available) so all ticks render.
 static bool tick_index_is_on_hour(int i, time_t radar_start) {
     if (radar_start <= 0) {
         return false;
     }
     const time_t tick_time = radar_start + (time_t)i * RADAR_SLOT_SECONDS;
-    return (tick_time % HOUR_SECONDS) == 0;
+    if ((tick_time % HOUR_SECONDS) != 0) {
+        return false;
+    }
+    return tick_time > radar_start && tick_time < radar_start + RADAR_WINDOW_SECONDS;
 }
 
 static void draw_radar_axis(GContext *ctx, GRect bounds) {
@@ -110,8 +115,7 @@ static inline int16_t slot_x(int s, int16_t plot_x, float entry_w) {
 }
 
 static inline int slot_height_px(uint8_t tenths, int16_t bar_plot_h) {
-    const int tier = rain_tier_of_tenths(tenths);
-    return rain_tier_pixel_height(tier, bar_plot_h);
+    return rain_tier_proportional_height((int) tenths, bar_plot_h);
 }
 
 // Per-slot outline colour: tier of the exact (foreground) bar at that

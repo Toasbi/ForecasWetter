@@ -46,6 +46,27 @@ int rain_tier_pixel_height(int tier, int bar_plot_h) {
     return h > 0 ? h : 1;
 }
 
+int rain_tier_proportional_height(int tenths, int bar_plot_h) {
+    if (tenths <= 0 || bar_plot_h <= 0) {
+        return 0;
+    }
+    const int tier    = rain_tier_of_tenths(tenths);
+    const int fill_q8 = rain_tier_fill_q8(tenths, tier);
+
+    // Lower tiers contribute their full segment height; the topmost
+    // tier contributes fill_q8/256 of its segment so the top edge moves
+    // continuously across the wire-tenths domain — same math as the
+    // slab loop in rain_tier_bar_draw_slabs.
+    const int below_h          = (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[tier - 1]) / 100;
+    const int slab_top_full    = (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[tier])     / 100;
+    const int slab_h_full      = slab_top_full - below_h;
+    int slab_h_top = (slab_h_full * fill_q8) / 256;
+    if (slab_h_top == 0 && fill_q8 > 0) { slab_h_top = 1; }
+
+    const int total = below_h + slab_h_top;
+    return total > 0 ? total : 1;
+}
+
 GColor rain_tier_color(int tier) {
     GColor fill = BAR_COLOR;
 #ifdef PBL_COLOR

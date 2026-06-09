@@ -18,6 +18,12 @@ GColor rain_tier_color(int tier);
 // discrete tier top (e.g. the radar area hatch + outline).
 int rain_tier_pixel_height(int tier, int bar_plot_h);
 
+// Continuous pixel height for a bar of `tenths` rain, matching the
+// visible top edge that rain_tier_bar_draw_slabs would render for the
+// same tenths (full lower-tier slabs + a fractional topmost slab).
+// Returns 0 for tenths <= 0; clamps to >= 1 otherwise.
+int rain_tier_proportional_height(int tenths, int bar_plot_h);
+
 // Draw one stacked-slab bar for `tenths` rain. Renders N slabs bottom-up
 // where N = rain_tier_of_tenths(tenths); slab k uses rain_tier_color(k);
 // the topmost slab is shortened for continuous height within a tier.

@@ -5,6 +5,20 @@ var BRIGHTSKY_BASE = 'https://api.brightsky.dev';
 var DISTANCE_METERS = 1000;   // must match NEARBY_RADIUS_KM * 1000; Brightsky returns all cells within this radius
 var NUM_BARS = 24;             // 24 frames * 5 min = 120 min
 var NEARBY_RADIUS_KM = 1;      // disk radius for the "nearby" max signal; radar grid is ~1 km/cell
+var SLOT_SECONDS = 5 * 60;     // wire-side slot width; must match RADAR_SLOT_SECONDS on the watch
+
+/**
+ * Fallback radar-start epoch when we can't read it off the response: the
+ * next 5-minute wall-clock boundary strictly after now. Brightsky frames
+ * land on wall-clock 5-min boundaries, so the kept slot-0 frame is at
+ * floor(now/5min)*5min + 5min.
+ *
+ * @returns {number} Unix epoch seconds, multiple of SLOT_SECONDS.
+ */
+function nextSlotBoundaryEpoch() {
+    var nowSec = Math.floor(Date.now() / 1000);
+    return Math.floor(nowSec / SLOT_SECONDS) * SLOT_SECONDS + SLOT_SECONDS;
+}
 
 /**
  * Build the URL for the Brightsky /radar request.
@@ -172,10 +186,16 @@ function gridCentre(grid) {
  * zeros via onSuccess. Network or parse errors invoke onFailure with
  * `{stage: 'radar', code: ...}`.
  *
+ * `startEpoch` is the wall-clock timestamp of slot 0 (the first kept
+ * frame after dropping the "now" frame), in Unix epoch seconds. Read
+ * from Brightsky's frame timestamp so it lands on a 5-min boundary;
+ * the watch's hour-axis tick suppression relies on this alignment.
+ *
  * @param {number} lat Latitude in decimal degrees.
  * @param {number} lon Longitude in decimal degrees.
- * @param {Function} onSuccess Receives `{ exact, nearby_1km }`, each a
- *   24-entry uint8 array of mm/h * 10 values.
+ * @param {Function} onSuccess Receives `{ exact, nearby_1km, startEpoch }`,
+ *   where the two arrays are 24-entry uint8 (mm/h * 10) and startEpoch is
+ *   slot 0's Unix epoch seconds.
  * @param {Function} onFailure Receives a `{stage, code}` failure object.
  * @returns {void}
  */
@@ -203,7 +223,11 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 // Out of DWD coverage. Return two 24-zero arrays so
                 // consumers see a flat signal rather than a
                 // coverage-specific error code.
-                onSuccess({ exact: zeroBars(), nearby_1km: zeroBars() });
+                onSuccess({
+                    exact: zeroBars(),
+                    nearby_1km: zeroBars(),
+                    startEpoch: nextSlotBoundaryEpoch()
+                });
                 return;
             }
             // Drop the first ("now") frame; the remaining frames cover
@@ -213,6 +237,13 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
             var hasXy = Boolean(xy && isFinite(xy.x) && isFinite(xy.y));
             var exactOut = zeroBars();
             var nearbyOut = zeroBars();
+            var startEpoch = nextSlotBoundaryEpoch();
+            if (frames.length > 0 && frames[0] && typeof frames[0].timestamp === 'string') {
+                var parsedMs = Date.parse(frames[0].timestamp);
+                if (isFinite(parsedMs)) {
+                    startEpoch = Math.floor(parsedMs / 1000);
+                }
+            }
             var i;
             var frame;
             var grid;
@@ -246,7 +277,7 @@ function withRadar2hRain(lat, lon, onSuccess, onFailure) {
                 exactOut[i] = scaleToWireUnits(exactRaw);
                 nearbyOut[i] = scaleToWireUnits(nearbyRaw);
             }
-            onSuccess({ exact: exactOut, nearby_1km: nearbyOut });
+            onSuccess({ exact: exactOut, nearby_1km: nearbyOut, startEpoch: startEpoch });
         },
         function(error) {
             console.log('[!] Radar request failed: ' + JSON.stringify(error));
