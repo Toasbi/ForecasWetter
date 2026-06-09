@@ -11,7 +11,8 @@
 #include "memory_log.h"
 
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
-    APP_LOG(APP_LOG_LEVEL_INFO, "Message received!");
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Inbox received: %u bytes",
+            (unsigned) dict_size(iterator));
     // Weather data
     Tuple *temp_trend_tuple = dict_find(iterator, MESSAGE_KEY_TEMP_TREND_INT16);
     Tuple *precip_trend_tuple = dict_find(iterator, MESSAGE_KEY_PRECIP_TREND_UINT8);
@@ -46,6 +47,13 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
     Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
     Tuple *rain_radar_start_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_START);
+
+    // Rain radar (may be bundled with weather)
+    Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
+    Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
+    Tuple *rain_radar_start_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_START);
+
+    bool handled = false;
 
     if(temp_trend_tuple && temp_trend_tuple && forecast_start_tuple && num_entries_tuple && city_tuple && sun_events_tuple) {
         // Weather data received
@@ -82,8 +90,10 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         weather_status_layer_refresh();
         calendar_layer_refresh();
         calendar_status_layer_refresh();
+        handled = true;
     }
-    else if (rain_radar_exact_tuple && rain_radar_area_tuple && rain_radar_start_tuple) {
+
+    if (rain_radar_exact_tuple && rain_radar_area_tuple && rain_radar_start_tuple) {
         APP_LOG(APP_LOG_LEVEL_INFO, "Rain-radar payload received");
         persist_set_rain_radar_trend(
             (uint8_t*) rain_radar_exact_tuple->value->data, 24);
@@ -92,15 +102,19 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         persist_set_rain_radar_start(
             (time_t) rain_radar_start_tuple->value->int32);
         rain_radar_layer_refresh();
+        handled = true;
     } else if (rain_radar_exact_tuple || rain_radar_area_tuple) {
-        // Partial radar payload — log and skip.
+        // Partial radar payload — log and discard so persist never holds half-state.
+        // RAIN_RADAR_START alone is too generic an int32 to count as radar-flavoured.
         APP_LOG(APP_LOG_LEVEL_WARNING,
                 "Rain-radar payload incomplete (exact=%d area=%d start=%d) — skipping",
                 rain_radar_exact_tuple != NULL,
                 rain_radar_area_tuple  != NULL,
                 rain_radar_start_tuple != NULL);
+        handled = true;
     }
-    else if (clay_celsius_tuple && clay_time_lead_zero_tuple && clay_axis_12h_tuple && clay_start_mon_tuple && clay_prev_week_tuple
+
+    if (clay_celsius_tuple && clay_time_lead_zero_tuple && clay_axis_12h_tuple && clay_start_mon_tuple && clay_prev_week_tuple
         && clay_color_today_tuple && clay_time_font_tuple && clay_vibe_tuple && clay_show_qt_tuple && clay_show_bt_tuple
         && clay_show_bt_disconnect_tuple && clay_show_am_pm_tuple && clay_color_saturday_tuple && clay_color_sunday_tuple
         && clay_color_us_federal_tuple && clay_color_time_tuple && clay_day_night_shading_tuple && clay_top_view_default_tuple) {
@@ -145,8 +159,10 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         };
         persist_set_config(config);
         main_window_refresh();
+        handled = true;
     }
-    else {
+
+    if (!handled) {
         APP_LOG(APP_LOG_LEVEL_WARNING, "Bad payload received in app_message.c");
     }
 }
@@ -178,7 +194,7 @@ void app_message_init() {
     app_message_register_inbox_dropped(inbox_dropped_callback);
 
     // Open AppMessage
-    const int inbox_size = 256;
+    const int inbox_size = 384;
     const int outbox_size = dict_calc_buffer_size(1, sizeof(uint8_t));
     APP_LOG(APP_LOG_LEVEL_INFO, "AppMessage buffer sizes: inbox=%d outbox=%d", inbox_size, outbox_size);
     app_message_open(inbox_size, outbox_size);

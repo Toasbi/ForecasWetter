@@ -910,9 +910,46 @@ function sendFixtureWeather(fixture) {
 }
 
 /**
+ * Fetch rain-radar data via withRadar2hRain and invoke `callback` with
+ * an object of three AppMessage tuples ready to be merged into the
+ * weather payload. On any failure (no coordinates, network error,
+ * radar parse error) calls `callback(null)` after logging; the weather
+ * payload still ships without radar tuples.
+ *
+ * Out-of-coverage (DWD returns radar: []) is NOT a failure — it
+ * produces zero arrays via withRadar2hRain, which is shipped normally.
+ *
+ * Relies on the existing GPS cache (maximumAge: 10000 ms in
+ * WeatherProvider.withGpsCoordinates) to absorb the second
+ * getCurrentPosition call that provider.fetch makes shortly after.
+ *
+ * @param {Object} provider Active WeatherProvider (has .withCoordinates).
+ * @param {Function} callback Receives `{tuples}` or `null`.
+ * @returns {void}
+ */
+function withRainRadarTuples(provider, callback) {
+    var radar = require('./weather/radar.js');
+    provider.withCoordinates(function(lat, lon) {
+        radar.withRadar2hRain(lat, lon, function(result) {
+            callback({
+                "RAIN_RADAR_TREND_UINT8": result.exact,
+                "RAIN_RADAR_TREND_AREA_UINT8": result.nearby_1km,
+                "RAIN_RADAR_START": Math.floor(Date.now() / 1000)
+            });
+        }, function(err) {
+            console.log('Rain-radar fetch failed: ' + JSON.stringify(err));
+            callback(null);
+        });
+    }, function(err) {
+        console.log('Rain-radar coords failed: ' + JSON.stringify(err));
+        callback(null);
+    });
+}
+
+/**
  * @typedef {import("./weather/provider")} WeatherProvider
- * @param {WeatherProvider} provider 
- * @param {boolean} force 
+ * @param {WeatherProvider} provider
+ * @param {boolean} force
  */
 function fetch(provider, force) {
     if (!isWatchConnected()) {
@@ -941,53 +978,56 @@ function fetch(provider, force) {
     }
     localStorage.setItem(KEY_LAST_FETCH_ATTEMPT, JSON.stringify(fetchStatus));
     try {
-        provider.fetch(
-            function() {
-                // Sucess, update recent fetch time
-                app.fetchInProgress = false;
-                localStorage.setItem(KEY_LAST_FETCH_SUCCESS, JSON.stringify(fetchStatus));
-                resetFetchAttemptCounter();
-                console.log('Successfully fetched weather!');
-                maybeTrackWeatherFetch({
-                    provider: provider.id,
-                    success: true,
-                    attempt: attempt,
-                    usedGpsCache: provider.usedGpsCache,
-                    gpsErrorCode: provider.gpsErrorCode,
-                    locationMode: provider.locationMode,
-                    countryCode: provider.countryCode,
-                    settings: app.settings,
-                    watchInfo: app.watchInfo,
-                    durationMs: Date.now() - fetchStart
-                });
-            },
-            function(failure) {
-                // Failure
-                app.fetchInProgress = false;
-                console.log('[!] Provider failed to update weather: ' + JSON.stringify(failure));
-                var attemptStatus = {
-                    time: fetchStatus.time,
-                    id: fetchStatus.id,
-                    name: fetchStatus.name,
-                    error: failure
-                };
-                localStorage.setItem(KEY_LAST_FETCH_ATTEMPT, JSON.stringify(attemptStatus));
-                maybeTrackWeatherFetch({
-                    provider: provider.id,
-                    success: false,
-                    attempt: attempt,
-                    usedGpsCache: provider.usedGpsCache,
-                    gpsErrorCode: provider.gpsErrorCode,
-                    locationMode: provider.locationMode,
-                    countryCode: provider.countryCode,
-                    error: failure,
-                    settings: app.settings,
-                    watchInfo: app.watchInfo,
-                    durationMs: Date.now() - fetchStart
-                });
-            },
-            force
-        )
+        withRainRadarTuples(provider, function(radarTuples) {
+            provider.fetch(
+                function() {
+                    // Sucess, update recent fetch time
+                    app.fetchInProgress = false;
+                    localStorage.setItem(KEY_LAST_FETCH_SUCCESS, JSON.stringify(fetchStatus));
+                    resetFetchAttemptCounter();
+                    console.log('Successfully fetched weather!');
+                    maybeTrackWeatherFetch({
+                        provider: provider.id,
+                        success: true,
+                        attempt: attempt,
+                        usedGpsCache: provider.usedGpsCache,
+                        gpsErrorCode: provider.gpsErrorCode,
+                        locationMode: provider.locationMode,
+                        countryCode: provider.countryCode,
+                        settings: app.settings,
+                        watchInfo: app.watchInfo,
+                        durationMs: Date.now() - fetchStart
+                    });
+                },
+                function(failure) {
+                    // Failure
+                    app.fetchInProgress = false;
+                    console.log('[!] Provider failed to update weather: ' + JSON.stringify(failure));
+                    var attemptStatus = {
+                        time: fetchStatus.time,
+                        id: fetchStatus.id,
+                        name: fetchStatus.name,
+                        error: failure
+                    };
+                    localStorage.setItem(KEY_LAST_FETCH_ATTEMPT, JSON.stringify(attemptStatus));
+                    maybeTrackWeatherFetch({
+                        provider: provider.id,
+                        success: false,
+                        attempt: attempt,
+                        usedGpsCache: provider.usedGpsCache,
+                        gpsErrorCode: provider.gpsErrorCode,
+                        locationMode: provider.locationMode,
+                        countryCode: provider.countryCode,
+                        error: failure,
+                        settings: app.settings,
+                        watchInfo: app.watchInfo,
+                        durationMs: Date.now() - fetchStart
+                    });
+                },
+                force,
+                radarTuples
+            );
+        });
     }
     catch (e) {
         app.fetchInProgress = false;

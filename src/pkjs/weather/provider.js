@@ -515,7 +515,7 @@ WeatherProvider.prototype.withProviderData = function(lat, lon, force, onSuccess
     onSuccess();
 };
 
-WeatherProvider.prototype.fetch = function(onSuccess, onFailure, force) {
+WeatherProvider.prototype.fetch = function(onSuccess, onFailure, force, extraPayload) {
     this.countryCode = null;
     this.locationMode = null;
 
@@ -525,6 +525,7 @@ WeatherProvider.prototype.fetch = function(onSuccess, onFailure, force) {
             this.withSunEvents(lat, lon, (function(sunEvents) {
                 this.withProviderData(lat, lon, force, (function() {
                     var payload;
+                    var extraKey;
                     // if `this` (the provider) contains valid weather details,
                     // then we can safely call this.getPayload()
                     if (this.hasValidData()) {
@@ -533,6 +534,13 @@ WeatherProvider.prototype.fetch = function(onSuccess, onFailure, force) {
                         this.cityName = cityName;
                         this.sunEvents = sunEvents;
                         payload = this.getPayload();
+                        if (extraPayload) {
+                            for (extraKey in extraPayload) {
+                                if (Object.prototype.hasOwnProperty.call(extraPayload, extraKey)) {
+                                    payload[extraKey] = extraPayload[extraKey];
+                                }
+                            }
+                        }
                         Pebble.sendAppMessage(
                             payload,
                             function(e) {
