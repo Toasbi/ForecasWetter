@@ -43,12 +43,7 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     Tuple *clay_day_night_shading_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_DAY_NIGHT_SHADING);
     Tuple *clay_top_view_default_tuple = dict_find(iterator, MESSAGE_KEY_CLAY_TOP_VIEW_DEFAULT);
 
-    // Rain-radar payload keys
-    Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
-    Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
-    Tuple *rain_radar_start_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_START);
-
-    // Rain radar (may be bundled with weather)
+    // Rain-radar payload keys (may be bundled with weather)
     Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
     Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
     Tuple *rain_radar_start_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_START);

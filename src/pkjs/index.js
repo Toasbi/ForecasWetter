@@ -894,11 +894,53 @@ function getFixtureWeatherPayload(fixture) {
  * @param {Object} fixture Active fixture loaded from fixtures/<name>.json.
  * @returns {void}
  */
+/**
+ * Read rainRadarExactMm + rainRadarAreaMm from the fixture's weather
+ * block and convert to wire tenths (same mm/h * 10 scaling as RAIN_TREND).
+ * Returns null when either array is missing — callers ship the weather
+ * payload without radar tuples in that case.
+ *
+ * @param {Object} fixture Active fixture.
+ * @returns {Object|null} Object of three radar AppMessage tuples, or null.
+ */
+function getFixtureRadarTuples(fixture) {
+    var weather = fixture && fixture.weather;
+    if (!weather || !Array.isArray(weather.rainRadarExactMm) || !Array.isArray(weather.rainRadarAreaMm)) {
+        return null;
+    }
+    var toTenths = function(mmPerHour) {
+        var scaled = Math.round((mmPerHour || 0) * 10);
+        if (scaled < 0) { return 0; }
+        if (scaled > 255) { return 255; }
+        return scaled;
+    };
+    return {
+        RAIN_RADAR_TREND_UINT8: weather.rainRadarExactMm.map(toTenths),
+        RAIN_RADAR_TREND_AREA_UINT8: weather.rainRadarAreaMm.map(toTenths),
+        RAIN_RADAR_START: Math.floor(Date.now() / 1000)
+    };
+}
+
 function sendFixtureWeather(fixture) {
     var payload = getFixtureWeatherPayload(fixture);
+    var radarTuples;
+    var radarKey;
 
     if (!payload) {
         return;
+    }
+
+    // Bundle radar tuples into the same AppMessage so they ride the
+    // inbox handler's bundled forecast+radar branch. Sending them as a
+    // follow-up Pebble.sendAppMessage during startup races on the
+    // half-duplex outbox channel.
+    radarTuples = getFixtureRadarTuples(fixture);
+    if (radarTuples) {
+        for (radarKey in radarTuples) {
+            if (Object.prototype.hasOwnProperty.call(radarTuples, radarKey)) {
+                payload[radarKey] = radarTuples[radarKey];
+            }
+        }
     }
 
     console.log('[fixture] Sending weather fixture: ' + (fixture.name || '(unknown)'));

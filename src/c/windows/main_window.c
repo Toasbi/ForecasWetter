@@ -25,6 +25,16 @@ static void apply_top_view(TopView v) {
 }
 
 static void tap_handler(AccelAxisType axis, int32_t direction) {
+    // accel_tap_service fires per-axis, so one physical tap commonly delivers
+    // 2+ callbacks in quick succession (e.g. X then Z) — without debounce the
+    // toggle flips an even number of times and looks like it did nothing.
+    static uint64_t s_last_tap_ms = 0;
+    time_t now_s;
+    uint16_t now_ms_part;
+    time_ms(&now_s, &now_ms_part);
+    uint64_t now_ms = (uint64_t)now_s * 1000 + now_ms_part;
+    if (now_ms - s_last_tap_ms < 500) return;
+    s_last_tap_ms = now_ms;
     apply_top_view(s_top_view == TOP_VIEW_CALENDAR
                    ? TOP_VIEW_RAIN_RADAR : TOP_VIEW_CALENDAR);
 }
@@ -160,6 +170,13 @@ void main_window_create() {
 }
 
 void main_window_refresh() {
+    // Pick up a freshly-arrived Clay top_view_default. Re-applying on every
+    // settings refresh resets a user's accel-tap toggle, but that's the
+    // expected outcome of explicitly changing the default in the watch
+    // settings (and it's the only way the fixture path can land the radar
+    // view, since the fixture's Clay payload arrives after main_window_load
+    // has already locked in the persisted default).
+    apply_top_view((TopView) g_config->top_view_default);
     time_layer_refresh();
     weather_status_layer_refresh();
     forecast_layer_refresh();

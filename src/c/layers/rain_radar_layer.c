@@ -18,6 +18,11 @@
 // stride for visual consistency.
 #define RADAR_HATCH_SPACING PBL_IF_COLOR_ELSE(6, 7)
 
+// 1km area background hatch colour — matches the night-region hatch so the
+// area pass reads as "non-foreground intensity context" rather than as
+// tier-coloured fill. Tier colour still lives in the outline + exact bars.
+#define RADAR_AREA_HATCH_COLOR PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
+
 // Minimum px between text labels. Drives label cadence per platform.
 #define RADAR_LABEL_MIN_SPACING_PX 24
 
@@ -83,8 +88,10 @@ static inline int slot_height_px(uint8_t tenths, int16_t bar_plot_h) {
 }
 
 // Pass 1: 1km background bars. Per slot with area > 0, hatch-fill a
-// full-slot-width rect. Contiguous runs of nonzero slots get a 1-px
-// outline tracing the perimeter, colour = max area tier in the run.
+// full-slot-width rect in RADAR_AREA_HATCH_COLOR (matches night hatch so
+// the area pass reads as low-emphasis context). Contiguous runs of
+// nonzero slots get a 1-px outline tracing the perimeter, colour =
+// max area tier in the run — that's where tier intensity is conveyed.
 static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
                                   const uint8_t *area_tenths) {
     if (bar_plot_rect.size.w <= 0 || bar_plot_rect.size.h <= 0) {
@@ -113,9 +120,7 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int16_t x_a = slot_x(s,     plot_x, entry_w);
             const int16_t x_b = slot_x(s + 1, plot_x, entry_w);
             const GRect r = GRect(x_a, plot_bottom - slot_h, x_b - x_a, slot_h);
-            hatch_fill_rect(ctx, r,
-                rain_tier_color(rain_tier_of_tenths(area_tenths[s])),
-                RADAR_HATCH_SPACING);
+            hatch_fill_rect(ctx, r, RADAR_AREA_HATCH_COLOR, RADAR_HATCH_SPACING);
         }
 
         graphics_context_set_stroke_color(ctx, rain_tier_color(max_tier));
@@ -178,13 +183,10 @@ static void draw_radar_exact_bars(GContext *ctx, GRect bar_plot_rect,
 
     for (int s = 0; s < RADAR_NUM_ENTRIES; ++s) {
         if (exact_tenths[s] == 0) { continue; }
-        const int tier = rain_tier_of_tenths(exact_tenths[s]);
-        const int h = rain_tier_pixel_height(tier, bar_h);
         const int16_t x_a = slot_x(s, plot_x, entry_w);
         const int16_t bar_x = x_a + (int16_t)((entry_w - fg_w) / 2.0f);
-        graphics_context_set_fill_color(ctx, rain_tier_color(tier));
-        graphics_fill_rect(ctx, GRect(bar_x, plot_bottom - h, fg_w, h),
-                           0, GCornerNone);
+        rain_tier_bar_draw_slabs(ctx, bar_x, fg_w, plot_bottom, bar_h,
+                                 exact_tenths[s]);
     }
 }
 
