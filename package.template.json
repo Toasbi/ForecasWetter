@@ -1,5 +1,5 @@
 {
-  "name": "WarnWeather",
+  "name": "warnweather",
   "author": "Toasbi",
   "version": "1.0.0",
   "buildProfile": "{{buildProfile}}",
