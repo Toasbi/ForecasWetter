@@ -7,6 +7,7 @@
 #include "c/appendix/hatch.h"
 #include "c/appendix/slot_geometry.h"
 #include "c/appendix/display_width.h"
+#include "c/appendix/chart.h"
 
 #define LEFT_AXIS_LABEL_STRIP_MIN_W 15
 #define LEFT_AXIS_LABEL_TO_GRAPH_GAP 2
@@ -52,6 +53,31 @@
     #define FORECAST_PAD   1
 #endif
 
+// Borders that previously lived as inline graphics_draw_line calls in
+// draw_left_axis / draw_bottom_axis. Phase 3 will wrap these into the
+// ChartConfig bundle alongside the slot grid and tick config.
+//
+// Two variants because the axis colour tracks the night-overlay state:
+// orange (or white on B&W) normally, darker grey under the night
+// shading so the axis reads as part of the night region instead of
+// competing with it. Left and bottom share one colour per variant.
+#define FORECAST_AXIS_COLOR_DAY    PBL_IF_COLOR_ELSE(GColorOrange,   GColorWhite)
+#define FORECAST_AXIS_COLOR_NIGHT  PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
+
+static const GraphFrame FORECAST_FRAME_DAY = {
+    .left   = { 1, FORECAST_AXIS_COLOR_DAY },
+    .right  = { 0, GColorClear },
+    .top    = { 0, GColorClear },
+    .bottom = { 1, FORECAST_AXIS_COLOR_DAY },
+};
+
+static const GraphFrame FORECAST_FRAME_NIGHT = {
+    .left   = { 1, FORECAST_AXIS_COLOR_NIGHT },
+    .right  = { 0, GColorClear },
+    .top    = { 0, GColorClear },
+    .bottom = { 1, FORECAST_AXIS_COLOR_NIGHT },
+};
+
 typedef struct
 {
     time_t start;
@@ -73,7 +99,6 @@ typedef struct
 typedef struct
 {
     bool draw_night_overlay;
-    GColor axis_color;
 } RenderSpec;
 
 typedef struct
@@ -120,18 +145,9 @@ static GPath s_path_temp;
 
 static RenderSpec make_render_spec()
 {
-    RenderSpec spec = {
+    return (RenderSpec){
         .draw_night_overlay = g_config->day_night_shading,
-        .axis_color = PBL_IF_COLOR_ELSE(GColorOrange, GColorWhite)};
-
-    if (spec.draw_night_overlay)
-    {
-        // Match NIGHT_HATCH_COLOR so the axis lines feel like part of the night
-        // shading rather than a competing red highlight.
-        spec.axis_color = PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite);
-    }
-
-    return spec;
+    };
 }
 
 static ForecastLayout compute_layout(GRect bounds)
@@ -513,18 +529,18 @@ static void draw_precip_top_line(GContext *ctx, int num_entries) {
     gpath_draw_outline_open(ctx, &s_path_precip_top);
 }
 
-static void draw_left_axis(GContext *ctx, int h, GRect graph_bounds) {
-    const int16_t axis_y = h - BOTTOM_AXIS_H;
-
+static void draw_left_axis(GContext *ctx, int h) {
+    // Mask anything drawn into the label strip. The vertical axis line
+    // itself is painted by graph_frame_draw(FORECAST_FRAME) earlier in
+    // the update proc.
     graphics_context_set_fill_color(ctx, GColorBlack);
     graphics_fill_rect(ctx, GRect(0, 0, s_axis_left_w, h - BOTTOM_AXIS_H), 0, GCornerNone);
-    graphics_context_set_stroke_width(ctx, 1);
-    graphics_draw_line(ctx, GPoint(graph_bounds.origin.x, 0), GPoint(graph_bounds.origin.x, axis_y));
 
     graphics_context_set_text_color(ctx, GColorWhite);
     GSize hi_size = temp_label_string_size(s_buffer_hi);
     GSize lo_size = temp_label_string_size(s_buffer_lo);
 #ifdef PBL_PLATFORM_EMERY
+    const int16_t axis_y = h - BOTTOM_AXIS_H;
     const int hi_y = 0;
     const int lo_y = axis_y - lo_size.h - 2;
 #else
@@ -542,15 +558,9 @@ static void draw_left_axis(GContext *ctx, int h, GRect graph_bounds) {
 }
 
 static void draw_bottom_axis(GContext *ctx, int h, GRect graph_bounds,
-                             SlotGeometry slots, struct tm *forecast_start_local,
-                             RenderSpec render_spec) {
-    const int16_t axis_y = h - BOTTOM_AXIS_H;
-    const int grid_right = slot_geometry_tick_x(slots, slots.num_slots, graph_bounds.origin.x);
-
-    graphics_context_set_stroke_color(ctx, render_spec.axis_color);
-    graphics_context_set_stroke_width(ctx, 1);
-    graphics_draw_line(ctx, GPoint(graph_bounds.origin.x, axis_y),
-                       GPoint(grid_right, axis_y));
+                             SlotGeometry slots, struct tm *forecast_start_local) {
+    // Horizontal axis line is now painted by graph_frame_draw(FORECAST_FRAME)
+    // earlier in the update proc; this function owns only ticks and labels.
 
     const int entries_per_label =
         ((float)HOUR_LABEL_MIN_SPACING + (slots.pitch - 1)) / slots.pitch;
@@ -678,8 +688,24 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     }
     draw_precip_top_line(ctx, ds.num_entries);
     draw_temp_line(ctx, graph_bounds, h, slots, ds.temps, ds.temp_lo, ds.temp_hi);
-    draw_bottom_axis(ctx, h, graph_bounds, slots, forecast_start_local, render_spec);
-    draw_left_axis(ctx, h, graph_bounds);
+
+    // Frame: left + bottom axis lines. Outer spans the grid columns
+    // (graph_bounds.origin.x .. grid_right) and the plot height down to
+    // axis_y. The mask + temp-range labels in draw_left_axis sit to the
+    // left of this rect and stay untouched.
+    const int16_t axis_y = h - BOTTOM_AXIS_H;
+    const int16_t grid_right = slot_geometry_tick_x(slots, slots.num_slots,
+                                                     graph_bounds.origin.x);
+    const GRect frame_outer = GRect(graph_bounds.origin.x, 0,
+                                     grid_right - graph_bounds.origin.x + 1,
+                                     axis_y + 1);
+    graph_frame_draw(ctx,
+                     render_spec.draw_night_overlay ? FORECAST_FRAME_NIGHT
+                                                    : FORECAST_FRAME_DAY,
+                     frame_outer);
+
+    draw_bottom_axis(ctx, h, graph_bounds, slots, forecast_start_local);
+    draw_left_axis(ctx, h);
     MEMORY_HEAP_PROBE_LOG_MIN(&redraw_probe);
     MEMORY_LOG_HEAP("forecast_update:exit");
 }
