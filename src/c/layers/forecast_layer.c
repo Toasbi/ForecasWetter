@@ -530,12 +530,13 @@ static void draw_rain_bars(GContext *ctx, GRect plot_rect, SlotGeometry slots,
     rain_bars_draw(ctx, plot_rect, slots, rain_tenths);
 }
 
-// anchor_x is the slot grid's left edge (= outer.origin.x, sitting under
-// the left border column). Bars use chart.content.origin.x (one pixel
-// inside the border); curves/ticks anchor at the border column itself
-// so their visual position matches the pre-phase-3 layer.
-static void draw_precip_area(GContext *ctx, GRect content, int anchor_x,
+// Anchor sits in the left-border column — one tick_w to the left of
+// content.origin.x. Bars use content.origin.x (inside the border) so
+// they don't move; curves and ticks back up by tick_w so their columns
+// line up with the pre-phase-3 visual.
+static void draw_precip_area(GContext *ctx, GRect content,
                              SlotGeometry slots, const uint8_t *precips) {
+    const int anchor_x    = content.origin.x - slots.tick_w;
     const int plot_bottom = content.origin.y + content.size.h;
     const int plot_h      = content.size.h;
     const int grid_right  = slot_geometry_tick_x(slots, slots.num_slots, anchor_x);
@@ -660,15 +661,17 @@ static void draw_bottom_axis(GContext *ctx, GRect outer, ChartGeometry chart,
         .num_slots            = chart.slots.num_slots,
         .forecast_start_local = forecast_start_local,
     };
-    // Ticks/labels anchor at outer.origin.x — one pixel left of
-    // chart.content.origin.x — so the columns line up with the
+    // Ticks/labels anchor in the left-border column — one tick_w to the
+    // left of chart.content.origin.x — so the columns line up with the
     // pre-phase-3 visual. Bars keep their own (chart.content) anchor.
-    slot_geometry_visit_ticks(chart.slots, ctx, outer.origin.x,
+    slot_geometry_visit_ticks(chart.slots, ctx,
+                              chart.content.origin.x - chart.slots.tick_w,
                               forecast_tick_callback, &tick_ctx);
 }
 
-static void draw_temp_line(GContext *ctx, GRect content, int anchor_x,
+static void draw_temp_line(GContext *ctx, GRect content,
                            SlotGeometry slots, const int16_t *temps, int lo, int hi) {
+    const int anchor_x    = content.origin.x - slots.tick_w;
     const int temp_plot_h = content.size.h - MARGIN_TEMP_H * 2;
     const int range       = hi - lo;
     const int range_safe  = range > 0 ? range : 1;
@@ -745,7 +748,7 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
                                         graph_bounds.size.w,
                                         chart.content.size.h);
 
-    draw_precip_area(ctx, chart.content, outer.origin.x, chart.slots, ds.precip_probs);
+    draw_precip_area(ctx, chart.content, chart.slots, ds.precip_probs);
     if (render_spec.draw_night_overlay)
     {
         draw_night_shading_under(ctx, night_plot_rect, forecast_start, forecast_end,
@@ -758,8 +761,7 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
                                 &night_segments);
     }
     draw_precip_top_line(ctx, ds.num_entries);
-    draw_temp_line(ctx, chart.content, outer.origin.x, chart.slots,
-                   ds.temps, ds.temp_lo, ds.temp_hi);
+    draw_temp_line(ctx, chart.content, chart.slots, ds.temps, ds.temp_lo, ds.temp_hi);
 
     // Frame on top of data so it overwrites curve/area pixels at the
     // border columns (same paint order as phase 2). Then ticks + labels.
