@@ -22,10 +22,7 @@
 #define RADAR_LABEL_H           14
 #define RADAR_LABEL_FONT_OFFSET 3
 #define RADAR_AXIS_H            12
-#define RADAR_TICK_BIG_LEN      5
-#define RADAR_TICK_SMALL_LEN    2
 #define RADAR_NUM_SLOTS         24
-#define RADAR_BIG_EVERY         3      // every 15min (3 * 5min)
 #define RADAR_SLOT_SECONDS      (5 * 60)
 #define RADAR_WINDOW_SECONDS    (RADAR_NUM_SLOTS * RADAR_SLOT_SECONDS)
 #define HOUR_SECONDS            3600
@@ -34,7 +31,6 @@
 // pitch = tick_w + 2*pad + bar_w
 //   144-bucket: 1 + 2 + 3 = 6 → 24*6 + 1 = 145 px (1 px clips on basalt)
 //   200-bucket: 1 + 2 + 5 = 8 → 24*8 + 1 = 193 px (fits in emery's 200)
-#define RADAR_TICK_W 1
 #if defined(DISPLAY_WIDTH_200)
     #define RADAR_BAR_W 5
     #define RADAR_PAD   1
@@ -42,16 +38,6 @@
     #define RADAR_BAR_W 3
     #define RADAR_PAD   1
 #endif
-
-// No-border frame. Phase 2 wires the primitive in for symmetry with the
-// forecast layer; phase 3 will fold it into a ChartConfig bundle. Visual
-// result today is unchanged — every side is width 0.
-static const GraphFrame RADAR_FRAME = {
-    .left   = { 0, GColorClear },
-    .right  = { 0, GColorClear },
-    .top    = { 0, GColorClear },
-    .bottom = { 0, GColorClear },
-};
 
 // Hatch line spacing for the 1km background bars. Matches the night-shading
 // stride for visual consistency.
@@ -62,6 +48,31 @@ static const GraphFrame RADAR_FRAME = {
 // reads as low-emphasis context; tier intensity is conveyed by the
 // outline + the exact bars on top.
 #define RADAR_AREA_HATCH_COLOR PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
+
+// Chart config: no-border frame; top tick row sits in the axis strip
+// above the bar plot. Small ticks every 5-min slot, big ticks every
+// 15 min (3 × 5min). Outer for the radar is the bar plot rect — top
+// ticks extend upward from there into the axis strip.
+#define RADAR_TICK_COLOR PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite)
+
+static const ChartConfig RADAR_CHART = {
+    .frame = {
+        .left   = { 0, GColorClear },
+        .right  = { 0, GColorClear },
+        .top    = { 0, GColorClear },
+        .bottom = { 0, GColorClear },
+    },
+    .ticks = {
+        .tick_w = 1,
+        .top    = { .length     = 2,
+                    .color      = RADAR_TICK_COLOR,
+                    .big_length = 5,
+                    .big_color  = RADAR_TICK_COLOR,
+                    .big_every  = 3 },   // every 15min (3 × 5min slots)
+    },
+    .slots = { .pad = RADAR_PAD, .bar_w = RADAR_BAR_W,
+               .num_slots = RADAR_NUM_SLOTS },
+};
 
 static Layer *s_radar_layer;
 
@@ -83,25 +94,29 @@ static bool tick_index_is_on_hour(int i, time_t radar_start) {
     return tick_time > radar_start && tick_time < radar_start + RADAR_WINDOW_SECONDS;
 }
 
-static void draw_radar_axis(GContext *ctx, GRect bounds, SlotGeometry slots) {
-    const int16_t x_start = bounds.origin.x;
-    const int16_t y_axis = bounds.origin.y + RADAR_AXIS_H - 1;
-    const int32_t grid_w = (int32_t) slots.num_slots * slots.pitch + slots.tick_w;
+typedef struct {
+    GRect    outer;
+    time_t   radar_start;
+} RadarTickCtx;
+
+static void radar_tick_callback(GContext *ctx, int idx, int tick_x, void *user) {
+    RadarTickCtx *c = user;
+    if (tick_index_is_on_hour(idx, c->radar_start)) {
+        return;  // hour digit takes this column instead
+    }
+    tick_side_draw_at(ctx, c->outer, RADAR_CHART.frame, GRAPH_SIDE_TOP,
+                      RADAR_CHART.ticks.top, idx, tick_x);
+}
+
+static void draw_radar_axis(GContext *ctx, GRect outer, ChartGeometry chart) {
     const time_t radar_start = persist_get_rain_radar_start();
 
-    // Tick row, but skip ticks whose column will host an hour label so
-    // the hour digit can sit in the same vertical strip without a tick
-    // collision underneath it.
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite));
-    graphics_context_set_stroke_width(ctx, 1);
-    for (int i = 0; i <= slots.num_slots; ++i) {
-        if (tick_index_is_on_hour(i, radar_start)) {
-            continue;
-        }
-        const int16_t x = slot_geometry_tick_x(slots, i, x_start);
-        const int16_t len = (i % RADAR_BIG_EVERY == 0) ? RADAR_TICK_BIG_LEN : RADAR_TICK_SMALL_LEN;
-        graphics_draw_line(ctx, GPoint(x, y_axis), GPoint(x, y_axis - len));
-    }
+    RadarTickCtx tick_ctx = {
+        .outer       = outer,
+        .radar_start = radar_start,
+    };
+    slot_geometry_visit_ticks(chart.slots, ctx, chart.content.origin.x,
+                              radar_tick_callback, &tick_ctx);
 
     if (radar_start <= 0) {
         return;
@@ -110,19 +125,22 @@ static void draw_radar_axis(GContext *ctx, GRect bounds, SlotGeometry slots) {
     // Hour labels centred on the slot column where the tick was removed.
     // Whole-hour boundaries strictly inside the 2h radar window get a
     // label; the start hour at slot 0 is implied by reading "+1" off the
-    // first label. Label x uses the new grid width so labels and bars
+    // first label. Label x uses the slot grid width so labels and bars
     // share the same time→x mapping.
+    const int32_t grid_w = (int32_t)chart.slots.num_slots * chart.slots.pitch
+                         + chart.slots.tick_w;
     const time_t radar_end = radar_start + RADAR_WINDOW_SECONDS;
     const time_t first_hour = (radar_start / HOUR_SECONDS + 1) * HOUR_SECONDS;
 
     graphics_context_set_text_color(ctx, GColorWhite);
     const GFont font = fonts_get_system_font(RADAR_LABEL_FONT);
-    const int label_y = bounds.origin.y - RADAR_LABEL_FONT_OFFSET;
+    const int label_y = outer.origin.y - RADAR_AXIS_H - RADAR_LABEL_FONT_OFFSET;
 
     for (time_t hr = first_hour; hr < radar_end; hr += HOUR_SECONDS) {
         struct tm *hr_local = localtime(&hr);
         const int hour_disp = config_axis_hour(hr_local->tm_hour);
-        const int16_t x = x_start + (int16_t)(((int64_t)(hr - radar_start) * grid_w) / RADAR_WINDOW_SECONDS);
+        const int16_t x = chart.content.origin.x
+                        + (int16_t)(((int64_t)(hr - radar_start) * grid_w) / RADAR_WINDOW_SECONDS);
         char buf[4];
         snprintf(buf, sizeof(buf), "%d", hour_disp);
         graphics_draw_text(ctx, buf, font,
@@ -261,22 +279,17 @@ static void radar_update_proc(Layer *layer, GContext *ctx) {
     persist_get_rain_radar_trend(exact_tenths, RADAR_NUM_SLOTS);
     persist_get_rain_radar_trend_area(area_tenths, RADAR_NUM_SLOTS);
 
-    const SlotGeometry slots = slot_geometry(RADAR_NUM_SLOTS,
-                                              RADAR_TICK_W,
-                                              RADAR_PAD,
-                                              RADAR_BAR_W);
+    // Chart outer is the bar plot area. The axis strip above it hosts
+    // hour labels and the tick row that extends upward from chart.content.
+    const GRect outer = GRect(bounds.origin.x,
+                              bounds.origin.y + RADAR_AXIS_H,
+                              bounds.size.w,
+                              bounds.size.h - RADAR_AXIS_H);
+    const ChartGeometry chart = chart_draw_frame(ctx, RADAR_CHART, outer);
 
-    const GRect axis_rect = GRect(bounds.origin.x, bounds.origin.y,
-                                  bounds.size.w, RADAR_AXIS_H);
-    const GRect bar_plot_rect = GRect(bounds.origin.x,
-                                      bounds.origin.y + RADAR_AXIS_H,
-                                      bounds.size.w,
-                                      bounds.size.h - RADAR_AXIS_H);
-
-    graph_frame_draw(ctx, RADAR_FRAME, bounds);
-    draw_radar_axis(ctx, axis_rect, slots);
-    draw_radar_area_bars(ctx, bar_plot_rect, slots, area_tenths, exact_tenths);
-    draw_radar_exact_bars(ctx, bar_plot_rect, slots, exact_tenths);
+    draw_radar_axis(ctx, outer, chart);
+    draw_radar_area_bars(ctx, chart.content, chart.slots, area_tenths, exact_tenths);
+    draw_radar_exact_bars(ctx, chart.content, chart.slots, exact_tenths);
 
     MEMORY_LOG_HEAP("radar_update:exit");
 }
