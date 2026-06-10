@@ -56,6 +56,8 @@
 // Borders that previously lived as inline graphics_draw_line calls in
 // draw_left_axis / draw_bottom_axis. Phase 3 will wrap this into the
 // ChartConfig bundle alongside the slot grid and tick config.
+// bottom.color is a placeholder — the update proc overrides it with
+// render_spec.axis_color so the line tracks the night-overlay state.
 static const GraphFrame FORECAST_FRAME = {
     .left   = { 1, GColorWhite },
     .right  = { 0, GColorClear },
@@ -83,7 +85,8 @@ typedef struct
 
 typedef struct
 {
-    bool draw_night_overlay;
+    bool   draw_night_overlay;
+    GColor axis_color;          // overrides FORECAST_FRAME.bottom.color
 } RenderSpec;
 
 typedef struct
@@ -130,8 +133,15 @@ static GPath s_path_temp;
 
 static RenderSpec make_render_spec()
 {
+    const bool night = g_config->day_night_shading;
+    // Match NIGHT_HATCH_COLOR when shading is on so the bottom axis reads as
+    // part of the night region instead of competing with it.
+    const GColor axis_color = night
+        ? PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
+        : PBL_IF_COLOR_ELSE(GColorOrange,   GColorWhite);
     return (RenderSpec){
-        .draw_night_overlay = g_config->day_night_shading,
+        .draw_night_overlay = night,
+        .axis_color         = axis_color,
     };
 }
 
@@ -677,14 +687,18 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     // Frame: left + bottom axis lines. Outer spans the grid columns
     // (graph_bounds.origin.x .. grid_right) and the plot height down to
     // axis_y. The mask + temp-range labels in draw_left_axis sit to the
-    // left of this rect and stay untouched.
+    // left of this rect and stay untouched. Bottom-axis colour is the
+    // one runtime-varying frame attribute (orange normally, darker when
+    // the night overlay is on, white on B&W).
     const int16_t axis_y = h - BOTTOM_AXIS_H;
     const int16_t grid_right = slot_geometry_tick_x(slots, slots.num_slots,
                                                      graph_bounds.origin.x);
     const GRect frame_outer = GRect(graph_bounds.origin.x, 0,
                                      grid_right - graph_bounds.origin.x + 1,
                                      axis_y + 1);
-    graph_frame_draw(ctx, FORECAST_FRAME, frame_outer);
+    GraphFrame forecast_frame = FORECAST_FRAME;
+    forecast_frame.bottom.color = render_spec.axis_color;
+    graph_frame_draw(ctx, forecast_frame, frame_outer);
 
     draw_bottom_axis(ctx, h, graph_bounds, slots, forecast_start_local);
     draw_left_axis(ctx, h);
