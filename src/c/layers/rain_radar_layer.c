@@ -7,6 +7,7 @@
 #include "c/appendix/memory_log.h"
 #include "c/appendix/slot_geometry.h"
 #include "c/appendix/display_width.h"
+#include "c/appendix/chart.h"
 
 // Layout constants. The axis area sits above the bar plot. Hour labels
 // share a single vertical strip with the tick row: at hour-aligned slot
@@ -41,6 +42,16 @@
     #define RADAR_BAR_W 3
     #define RADAR_PAD   1
 #endif
+
+// No-border frame. Phase 2 wires the primitive in for symmetry with the
+// forecast layer; phase 3 will fold it into a ChartConfig bundle. Visual
+// result today is unchanged — every side is width 0.
+static const GraphFrame RADAR_FRAME = {
+    .left   = { 0, GColorClear },
+    .right  = { 0, GColorClear },
+    .top    = { 0, GColorClear },
+    .bottom = { 0, GColorClear },
+};
 
 // Hatch line spacing for the 1km background bars. Matches the night-shading
 // stride for visual consistency.
@@ -262,6 +273,7 @@ static void radar_update_proc(Layer *layer, GContext *ctx) {
                                       bounds.size.w,
                                       bounds.size.h - RADAR_AXIS_H);
 
+    graph_frame_draw(ctx, RADAR_FRAME, bounds);
     draw_radar_axis(ctx, axis_rect, slots);
     draw_radar_area_bars(ctx, bar_plot_rect, slots, area_tenths, exact_tenths);
     draw_radar_exact_bars(ctx, bar_plot_rect, slots, exact_tenths);
