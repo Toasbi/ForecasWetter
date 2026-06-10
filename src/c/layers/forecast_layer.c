@@ -525,9 +525,14 @@ static void draw_night_shading_over(GContext *ctx, GRect graph_plot_rect,
     draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, night_segments);
 }
 
-static void draw_rain_bars(GContext *ctx, GRect plot_rect, SlotGeometry slots,
+static void draw_rain_bars(GContext *ctx, GRect content, SlotGeometry slots,
                            const uint8_t *rain_tenths) {
-    rain_bars_draw(ctx, plot_rect, slots, rain_tenths);
+    // Same anchor shift as draw_precip_area / draw_temp_line so bars,
+    // curves, and ticks all share one column grid. rain_bars_draw uses
+    // plot_rect.origin.x as the slot anchor — shift it left by tick_w.
+    GRect bar_rect = content;
+    bar_rect.origin.x -= slots.tick_w;
+    rain_bars_draw(ctx, bar_rect, slots, rain_tenths);
 }
 
 // Anchor sits in the left-border column — one tick_w to the left of
