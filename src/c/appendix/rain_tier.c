@@ -86,21 +86,32 @@ GColor rain_tier_color(int tier) {
 void rain_tier_bar_draw_slabs(GContext *ctx,
                               int bar_x, int bar_w,
                               int bar_plot_bottom, int bar_plot_h,
-                              int tenths) {
+                              int tenths, bool invert) {
     if (tenths <= 0 || bar_w <= 0 || bar_plot_h <= 0) {
         return;
     }
-    const int tier    = rain_tier_of_tenths(tenths);
-    const int fill_q8 = rain_tier_fill_q8(tenths, tier);
+    const int tier         = rain_tier_of_tenths(tenths);
+    const int fill_q8      = rain_tier_fill_q8(tenths, tier);
+    const int bar_plot_top = bar_plot_bottom - bar_plot_h;
 
     // Lower slabs (k < tier) fill their segment fully. The topmost slab
-    // (k == tier) grows upward from its segment bottom by fill_q8/256 so
-    // bar height varies continuously across the wire-tenths domain while
+    // (k == tier) grows from its segment base by fill_q8/256 so bar
+    // height varies continuously across the wire-tenths domain while
     // colours stay discrete per tier.
+    //
+    // Invert: slab y math anchors at bar_plot_top instead of
+    // bar_plot_bottom so the bar hangs downward. Tier 1 stays nearest
+    // the anchor edge (which is now the top).
     for (int k = 1; k <= tier; ++k) {
-        const int slab_top_full    = bar_plot_bottom - (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k])     / 100;
-        const int slab_bottom_full = bar_plot_bottom - (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k - 1]) / 100;
-        const int slab_h_full      = slab_bottom_full - slab_top_full;
+        int slab_top_full, slab_bottom_full;
+        if (invert) {
+            slab_top_full    = bar_plot_top + (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k - 1]) / 100;
+            slab_bottom_full = bar_plot_top + (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k])     / 100;
+        } else {
+            slab_top_full    = bar_plot_bottom - (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k])     / 100;
+            slab_bottom_full = bar_plot_bottom - (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k - 1]) / 100;
+        }
+        const int slab_h_full = slab_bottom_full - slab_top_full;
 
         int slab_h;
         if (k < tier) {
@@ -111,7 +122,7 @@ void rain_tier_bar_draw_slabs(GContext *ctx,
         }
         if (slab_h <= 0) { continue; }
 
-        const int slab_top = slab_bottom_full - slab_h;
+        const int slab_top = invert ? slab_top_full : (slab_bottom_full - slab_h);
         graphics_context_set_fill_color(ctx, rain_tier_color(k));
         graphics_fill_rect(ctx, GRect(bar_x, slab_top, bar_w, slab_h), 0, GCornerNone);
     }
@@ -123,10 +134,10 @@ void rain_tier_bar_draw_slabs(GContext *ctx,
     // silhouette keeps the shape readable on either background.
     const int bar_h = rain_tier_proportional_height(tenths, bar_plot_h);
     if (bar_h > 0) {
+        const int outline_top = invert ? bar_plot_top : (bar_plot_bottom - bar_h);
         graphics_context_set_stroke_color(ctx, GColorWhite);
         graphics_context_set_stroke_width(ctx, 1);
-        graphics_draw_rect(ctx,
-            GRect(bar_x, bar_plot_bottom - bar_h, bar_w, bar_h));
+        graphics_draw_rect(ctx, GRect(bar_x, outline_top, bar_w, bar_h));
     }
 #endif
 }
@@ -146,6 +157,6 @@ void rain_bars_draw(GContext *ctx, GRect plot_rect, SlotGeometry slots,
             continue;
         }
         const int bar_x = slot_geometry_bar_x(slots, i, plot_rect.origin.x);
-        rain_tier_bar_draw_slabs(ctx, bar_x, slots.bar_w, bar_plot_bottom, bar_plot_h, t);
+        rain_tier_bar_draw_slabs(ctx, bar_x, slots.bar_w, bar_plot_bottom, bar_plot_h, t, false);
     }
 }

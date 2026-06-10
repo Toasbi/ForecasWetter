@@ -27,6 +27,13 @@
 #define RADAR_WINDOW_SECONDS    (RADAR_NUM_SLOTS * RADAR_SLOT_SECONDS)
 #define HOUR_SECONDS            3600
 
+// Bar growth direction. true flips the radar top-down (rain hanging
+// from the axis); false keeps the conventional bottom-up layout. Both
+// branches live in draw_radar_area_bars and draw_radar_exact_bars; the
+// unused side is dead-stripped at the constant value below. Wire to a
+// runtime setting when desired.
+#define RADAR_INVERT_BARS false
+
 // Slot grid bar dimensions, bucketed by display width.
 // pitch = tick_w + 2*pad + bar_w
 //   144-bucket: 1 + 2 + 3 = 6 → 24*6 + 1 = 145 px (overflows 144 by 1 → 1 px clip)
@@ -59,7 +66,11 @@ static const ChartConfig RADAR_CHART = {
     .frame = {
         .left   = { 0, GColorClear },
         .right  = { 0, GColorClear },
-        .top    = { 0, GColorClear },
+        // Top divider only renders in inverted (top-down) layout, where
+        // it reads as the axis line that bars hang from. Bottom-up mode
+        // doesn't need it — the layer's bottom edge implicitly anchors
+        // the bars.
+        .top    = { RADAR_INVERT_BARS ? 1 : 0, RADAR_AREA_HATCH_COLOR },
         .bottom = { 0, GColorClear },
     },
     .ticks = {
@@ -170,6 +181,15 @@ static GColor border_color_for_slot(uint8_t exact_t, uint8_t area_t) {
 // intensity is conveyed by the outline + the exact bars on top.
 // Contiguous runs of nonzero slots get a 1-px outline tracing the
 // perimeter, with each segment coloured by its slot's exact tier.
+//
+// Direction is gated on RADAR_INVERT_BARS:
+//   false → bottom-up: hatch rects anchor at plot_bottom and grow
+//           upward; outline traces the run's top edge plus the
+//           left/right verticals from plot_bottom up.
+//   true  → top-down (radar rain "falls" from the axis): hatch rects
+//           anchor at plot_top; outline traces the run's lower lip
+//           plus the verticals from plot_top down.
+// The unused branch is dead-stripped at the macro's current value.
 static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
                                   SlotGeometry slots,
                                   const uint8_t *area_tenths,
@@ -177,9 +197,11 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
     if (bar_plot_rect.size.w <= 0 || bar_plot_rect.size.h <= 0) {
         return;
     }
-    const int16_t plot_x = bar_plot_rect.origin.x;
+    const bool invert = RADAR_INVERT_BARS;
+    const int16_t plot_x      = bar_plot_rect.origin.x;
+    const int16_t plot_top    = bar_plot_rect.origin.y;
     const int16_t plot_bottom = bar_plot_rect.origin.y + bar_plot_rect.size.h;
-    const int16_t bar_h = bar_plot_rect.size.h;
+    const int16_t bar_h       = bar_plot_rect.size.h;
 
     graphics_context_set_stroke_width(ctx, 1);
 
@@ -201,7 +223,8 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int16_t x_a = slot_geometry_tick_x(slots, s,     plot_x);
             const int16_t x_b = slot_geometry_tick_x(slots, s + 1, plot_x);
             const int16_t slot_w = x_b - x_a;
-            const GRect r = GRect(x_a, plot_bottom - slot_h, slot_w, slot_h);
+            const int16_t y = invert ? plot_top : (plot_bottom - slot_h);
+            const GRect r = GRect(x_a, y, slot_w, slot_h);
             hatch_fill_rect(ctx, r, RADAR_AREA_HATCH_COLOR, RADAR_HATCH_SPACING);
         }
 
@@ -209,19 +232,22 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
         {
             const int h0 = slot_height_px(area_tenths[run_start], bar_h);
             const int16_t lx = slot_geometry_tick_x(slots, run_start, plot_x);
+            const int16_t y0 = invert ? plot_top                : (plot_bottom - 1);
+            const int16_t y1 = invert ? (plot_top + h0 - 1)     : (plot_bottom - h0);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[run_start], area_tenths[run_start]));
-            graphics_draw_line(ctx, GPoint(lx, plot_bottom - 1), GPoint(lx, plot_bottom - h0));
+            graphics_draw_line(ctx, GPoint(lx, y0), GPoint(lx, y1));
         }
 
-        // Top edges across the run.
+        // Visible inner edge across the run — top edge (bottom-up) or
+        // lower lip (top-down).
         for (int s = run_start; s < run_end; ++s) {
             const int h_s = slot_height_px(area_tenths[s], bar_h);
             if (h_s <= 0) { continue; }
             const int16_t x_a = slot_geometry_tick_x(slots, s,     plot_x);
             const int16_t x_b = slot_geometry_tick_x(slots, s + 1, plot_x);
+            const int16_t y = invert ? (plot_top + h_s - 1) : (plot_bottom - h_s);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[s], area_tenths[s]));
-            graphics_draw_line(ctx, GPoint(x_a, plot_bottom - h_s),
-                                    GPoint(x_b - 1, plot_bottom - h_s));
+            graphics_draw_line(ctx, GPoint(x_a, y), GPoint(x_b - 1, y));
         }
 
         // Internal vertical steps where adjacent slot heights differ.
@@ -230,18 +256,22 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int h_b = slot_height_px(area_tenths[s + 1], bar_h);
             if (h_a == h_b) { continue; }
             const int16_t bx = slot_geometry_tick_x(slots, s + 1, plot_x);
+            const int min_h = (h_a > h_b) ? h_b : h_a;
+            const int max_h = (h_a > h_b) ? h_a : h_b;
+            const int y_near = invert ? (plot_top + min_h) : (plot_bottom - min_h);
+            const int y_far  = invert ? (plot_top + max_h) : (plot_bottom - max_h);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[s + 1], area_tenths[s + 1]));
-            const int y_lo = plot_bottom - ((h_a > h_b) ? h_b : h_a);
-            const int y_hi = plot_bottom - ((h_a > h_b) ? h_a : h_b);
-            graphics_draw_line(ctx, GPoint(bx, y_lo), GPoint(bx, y_hi));
+            graphics_draw_line(ctx, GPoint(bx, y_near), GPoint(bx, y_far));
         }
 
         // Right vertical outline at the run's right edge.
         {
             const int h_last = slot_height_px(area_tenths[run_end - 1], bar_h);
             const int16_t rx = slot_geometry_tick_x(slots, run_end, plot_x) - 1;
+            const int16_t y0 = invert ? plot_top                : (plot_bottom - 1);
+            const int16_t y1 = invert ? (plot_top + h_last - 1) : (plot_bottom - h_last);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[run_end - 1], area_tenths[run_end - 1]));
-            graphics_draw_line(ctx, GPoint(rx, plot_bottom - 1), GPoint(rx, plot_bottom - h_last));
+            graphics_draw_line(ctx, GPoint(rx, y0), GPoint(rx, y1));
         }
 
         i = run_end;
@@ -266,7 +296,7 @@ static void draw_radar_exact_bars(GContext *ctx, GRect bar_plot_rect,
         if (exact_tenths[s] == 0) { continue; }
         const int16_t bar_x = slot_geometry_bar_x(slots, s, plot_x);
         rain_tier_bar_draw_slabs(ctx, bar_x, slots.bar_w, plot_bottom, bar_h,
-                                 exact_tenths[s]);
+                                 exact_tenths[s], RADAR_INVERT_BARS);
     }
 }
 

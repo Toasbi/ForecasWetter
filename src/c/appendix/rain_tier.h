@@ -25,14 +25,21 @@ int rain_tier_pixel_height(int tier, int bar_plot_h);
 // Returns 0 for tenths <= 0; clamps to >= 1 otherwise.
 int rain_tier_proportional_height(int tenths, int bar_plot_h);
 
-// Draw one stacked-slab bar for `tenths` rain. Renders N slabs bottom-up
-// where N = rain_tier_of_tenths(tenths); slab k uses rain_tier_color(k);
-// the topmost slab is shortened for continuous height within a tier.
-// Skips when tenths <= 0.
+// Draw one stacked-slab bar for `tenths` rain. Renders N slabs where
+// N = rain_tier_of_tenths(tenths); slab k uses rain_tier_color(k); the
+// topmost slab is shortened for continuous height within a tier. Skips
+// when tenths <= 0.
+//
+// Direction: when invert=false the bar grows upward from bar_plot_bottom
+// (tier 1 at the anchor edge, higher tiers farther away — the forecast's
+// bottom-up layout). When invert=true the bar hangs downward from the
+// top of the bar plot (bar_plot_bottom - bar_plot_h); tier 1 still sits
+// next to the anchor edge, which is now the top — used by the rain
+// radar so labels at the top read as "rain falls from here".
 void rain_tier_bar_draw_slabs(GContext *ctx,
                               int bar_x, int bar_w,
                               int bar_plot_bottom, int bar_plot_h,
-                              int tenths);
+                              int tenths, bool invert);
 
 // Draw stacked-slab rain bars across plot_rect using a SlotGeometry grid.
 // Bars with tenths == 0 are skipped.
