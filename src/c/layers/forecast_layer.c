@@ -57,22 +57,25 @@
 // draw_left_axis / draw_bottom_axis. Phase 3 will wrap these into the
 // ChartConfig bundle alongside the slot grid and tick config.
 //
-// Two variants because the bottom axis colour tracks the night-overlay
-// state: orange (or white on B&W) normally, darker grey under the night
-// shading so it reads as part of the night region instead of competing
-// with it. Everything else is shared.
+// Two variants because the axis colour tracks the night-overlay state:
+// orange (or white on B&W) normally, darker grey under the night
+// shading so the axis reads as part of the night region instead of
+// competing with it. Left and bottom share one colour per variant.
+#define FORECAST_AXIS_COLOR_DAY    PBL_IF_COLOR_ELSE(GColorOrange,   GColorWhite)
+#define FORECAST_AXIS_COLOR_NIGHT  PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite)
+
 static const GraphFrame FORECAST_FRAME_DAY = {
-    .left   = { 1, GColorWhite },
+    .left   = { 1, FORECAST_AXIS_COLOR_DAY },
     .right  = { 0, GColorClear },
     .top    = { 0, GColorClear },
-    .bottom = { 1, PBL_IF_COLOR_ELSE(GColorOrange, GColorWhite) },
+    .bottom = { 1, FORECAST_AXIS_COLOR_DAY },
 };
 
 static const GraphFrame FORECAST_FRAME_NIGHT = {
-    .left   = { 1, GColorWhite },
+    .left   = { 1, FORECAST_AXIS_COLOR_NIGHT },
     .right  = { 0, GColorClear },
     .top    = { 0, GColorClear },
-    .bottom = { 1, PBL_IF_COLOR_ELSE(GColorDarkGray, GColorWhite) },
+    .bottom = { 1, FORECAST_AXIS_COLOR_NIGHT },
 };
 
 typedef struct
