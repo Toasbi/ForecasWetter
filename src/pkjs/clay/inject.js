@@ -26,6 +26,7 @@ module.exports = function (minified) {
         var clayOwmApiKey;
         var clayProvider;
         var clayLocation;
+        var clayTopViewDefault;
         var initProvider;
         var initOwmApiKey;
         var initLocation;
@@ -47,25 +48,33 @@ module.exports = function (minified) {
         clayOwmApiKey = clayConfig.getItemByMessageKey('owmApiKey');
         clayProvider = clayConfig.getItemByMessageKey('provider');
         clayLocation = clayConfig.getItemByMessageKey('location');
+        clayTopViewDefault = clayConfig.getItemByMessageKey('topViewDefault');
         initProvider = clayProvider.get();
         initOwmApiKey = clayOwmApiKey.get();
         initLocation = clayLocation.get();
 
-        // Configure default provide section layout
+        // Configure default provider section layout
         if (initProvider !== 'openweathermap') {
-            clayOwmApiKey.hide()
+            clayOwmApiKey.hide();
+        }
+        if (initProvider !== 'dwd') {
+            clayTopViewDefault.hide();
         }
 
         // Configure logic for updating the provider section layout
         clayProvider.on('change', function() {
             if (this.get() === 'openweathermap') {
                 clayOwmApiKey.show();
-            }
-            else {
+            } else {
                 clayOwmApiKey.hide();
             }
+            if (this.get() === 'dwd') {
+                clayTopViewDefault.show();
+            } else {
+                clayTopViewDefault.hide();
+            }
             console.log('Provider set to ' + this.get());
-        })
+        });
 
         // Show last weather fetch status
         lastFetchSuccessString = clayConfig.meta.userData.lastFetchSuccess;

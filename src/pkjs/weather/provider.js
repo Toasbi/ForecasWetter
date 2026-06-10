@@ -515,6 +515,17 @@ WeatherProvider.prototype.withProviderData = function(lat, lon, force, onSuccess
     onSuccess();
 };
 
+/**
+ * Fetch radar data tuples with trend arrays and start position.
+ *
+ * @param {number} slotZeroEpoch The 5-min pinned slot-0 epoch (unused by default, exists for DWD override).
+ * @param {Function} callback Receives { RAIN_RADAR_TREND_UINT8, RAIN_RADAR_TREND_AREA_UINT8, RAIN_RADAR_START } empty-array payload.
+ * @returns {void}
+ */
+WeatherProvider.prototype.withRadarTuples = function(slotZeroEpoch, callback) {
+    callback({ RAIN_RADAR_TREND_UINT8: [], RAIN_RADAR_TREND_AREA_UINT8: [], RAIN_RADAR_START: 0 });
+};
+
 WeatherProvider.prototype.fetch = function(onSuccess, onFailure, force, extraPayload) {
     this.countryCode = null;
     this.locationMode = null;

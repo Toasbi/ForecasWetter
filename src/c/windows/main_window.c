@@ -18,7 +18,14 @@ typedef enum {
 
 static TopView s_top_view;
 
+static bool radar_has_data(void) {
+    return persist_get_rain_radar_start() > 0;
+}
+
 static void apply_top_view(TopView v) {
+    if (v == TOP_VIEW_RAIN_RADAR && !radar_has_data()) {
+        v = TOP_VIEW_CALENDAR;
+    }
     s_top_view = v;
     layer_set_hidden(calendar_layer_get_root(), v != TOP_VIEW_CALENDAR);
     layer_set_hidden(rain_radar_layer_get_root(), v != TOP_VIEW_RAIN_RADAR);
@@ -35,8 +42,8 @@ static void tap_handler(AccelAxisType axis, int32_t direction) {
     uint64_t now_ms = (uint64_t)now_s * 1000 + now_ms_part;
     if (now_ms - s_last_tap_ms < 500) return;
     s_last_tap_ms = now_ms;
-    apply_top_view(s_top_view == TOP_VIEW_CALENDAR
-                   ? TOP_VIEW_RAIN_RADAR : TOP_VIEW_CALENDAR);
+    if (s_top_view == TOP_VIEW_CALENDAR && !radar_has_data()) { return; }
+    apply_top_view(s_top_view == TOP_VIEW_CALENDAR ? TOP_VIEW_RAIN_RADAR : TOP_VIEW_CALENDAR);
 }
 
 #define FORECAST_HEIGHT 51

@@ -723,9 +723,7 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
     const time_t forecast_start = ds.forecast_start;
     const time_t forecast_end = forecast_start + (ds.num_entries - 1) * FORECAST_STEP_SECONDS;
     struct tm *forecast_start_local = localtime(&forecast_start);
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "rain_tenths[0..7]=%u,%u,%u,%u,%u,%u,%u,%u",
-            ds.rain_tenths[0], ds.rain_tenths[1], ds.rain_tenths[2], ds.rain_tenths[3],
-            ds.rain_tenths[4], ds.rain_tenths[5], ds.rain_tenths[6], ds.rain_tenths[7]);
+
 
     NightSegments night_segments = {0};
     if (render_spec.draw_night_overlay)

@@ -93,12 +93,20 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
 
     if (rain_radar_exact_tuple && rain_radar_area_tuple && rain_radar_start_tuple) {
         APP_LOG(APP_LOG_LEVEL_INFO, "Rain-radar payload received");
-        persist_set_rain_radar_trend(
-            (uint8_t*) rain_radar_exact_tuple->value->data, 24);
-        persist_set_rain_radar_trend_area(
-            (uint8_t*) rain_radar_area_tuple->value->data, 24);
-        persist_set_rain_radar_start(
-            (time_t) rain_radar_start_tuple->value->int32);
+        if (rain_radar_exact_tuple->length == 0) {
+            // Empty array from a non-DWD provider — clear persisted radar data.
+            uint8_t zeros[24] = {0};
+            persist_set_rain_radar_trend(zeros, 24);
+            persist_set_rain_radar_trend_area(zeros, 24);
+            persist_set_rain_radar_start(0);
+        } else {
+            persist_set_rain_radar_trend(
+                (uint8_t*) rain_radar_exact_tuple->value->data, 24);
+            persist_set_rain_radar_trend_area(
+                (uint8_t*) rain_radar_area_tuple->value->data, 24);
+            persist_set_rain_radar_start(
+                (time_t) rain_radar_start_tuple->value->int32);
+        }
         rain_radar_layer_refresh();
         handled = true;
     } else if (rain_radar_exact_tuple || rain_radar_area_tuple) {

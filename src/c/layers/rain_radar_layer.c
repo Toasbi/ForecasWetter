@@ -176,6 +176,32 @@ static GColor border_color_for_slot(uint8_t exact_t, uint8_t area_t) {
     return rain_tier_color(tier);
 }
 
+// Draw a dotted horizontal/vertical line segment for the nearby border on
+// B&W devices; fall back to a solid line on colour devices.
+static void nearby_border_h_line(GContext *ctx, int16_t x0, int16_t x1, int16_t y) {
+#ifdef PBL_COLOR
+    graphics_draw_line(ctx, GPoint(x0, y), GPoint(x1, y));
+#else
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+    if (x0 > x1) { int16_t t = x0; x0 = x1; x1 = t; }
+    for (int16_t x = x0; x <= x1; x += 2) {
+        graphics_draw_pixel(ctx, GPoint(x, y));
+    }
+#endif
+}
+
+static void nearby_border_v_line(GContext *ctx, int16_t x, int16_t y0, int16_t y1) {
+#ifdef PBL_COLOR
+    graphics_draw_line(ctx, GPoint(x, y0), GPoint(x, y1));
+#else
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+    if (y0 > y1) { int16_t t = y0; y0 = y1; y1 = t; }
+    for (int16_t y = y0; y <= y1; y += 2) {
+        graphics_draw_pixel(ctx, GPoint(x, y));
+    }
+#endif
+}
+
 // Pass 1: 1km background bars. Per slot with area > 0, hatch-fill a
 // full-slot-width rect in the muted RADAR_AREA_HATCH_COLOR; tier
 // intensity is conveyed by the outline + the exact bars on top.
@@ -235,7 +261,7 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int16_t y0 = invert ? plot_top                : (plot_bottom - 1);
             const int16_t y1 = invert ? (plot_top + h0 - 1)     : (plot_bottom - h0);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[run_start], area_tenths[run_start]));
-            graphics_draw_line(ctx, GPoint(lx, y0), GPoint(lx, y1));
+            nearby_border_v_line(ctx, lx, y0, y1);
         }
 
         // Visible inner edge across the run — top edge (bottom-up) or
@@ -247,7 +273,7 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int16_t x_b = slot_geometry_tick_x(slots, s + 1, plot_x);
             const int16_t y = invert ? (plot_top + h_s - 1) : (plot_bottom - h_s);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[s], area_tenths[s]));
-            graphics_draw_line(ctx, GPoint(x_a, y), GPoint(x_b - 1, y));
+            nearby_border_h_line(ctx, x_a, x_b - 1, y);
         }
 
         // Internal vertical steps where adjacent slot heights differ.
@@ -261,7 +287,7 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int y_near = invert ? (plot_top + min_h) : (plot_bottom - min_h);
             const int y_far  = invert ? (plot_top + max_h) : (plot_bottom - max_h);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[s + 1], area_tenths[s + 1]));
-            graphics_draw_line(ctx, GPoint(bx, y_near), GPoint(bx, y_far));
+            nearby_border_v_line(ctx, bx, y_near, y_far);
         }
 
         // Right vertical outline at the run's right edge.
@@ -271,7 +297,7 @@ static void draw_radar_area_bars(GContext *ctx, GRect bar_plot_rect,
             const int16_t y0 = invert ? plot_top                : (plot_bottom - 1);
             const int16_t y1 = invert ? (plot_top + h_last - 1) : (plot_bottom - h_last);
             graphics_context_set_stroke_color(ctx, border_color_for_slot(exact_tenths[run_end - 1], area_tenths[run_end - 1]));
-            graphics_draw_line(ctx, GPoint(rx, y0), GPoint(rx, y1));
+            nearby_border_v_line(ctx, rx, y0, y1);
         }
 
         i = run_end;

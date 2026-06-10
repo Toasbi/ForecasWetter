@@ -90,4 +90,29 @@ DwdProvider.prototype.withProviderData = function(lat, lon, force, onSuccess, on
     }).bind(this), onFailure);
 };
 
+/**
+ * Fetch 2-hour rain radar data from Brightsky API.
+ * @param {number} slotZeroEpoch - Unix timestamp for the start of the forecast window
+ * @param {Function} callback - Invoked with radar tuples or null on failure
+ */
+DwdProvider.prototype.withRadarTuples = function(slotZeroEpoch, callback) {
+    var radar = require('./radar.js');
+    this.withCoordinates(function(lat, lon) {
+        radar.withRadar2hRain(lat, lon, slotZeroEpoch, function(result) {
+            callback({
+                RAIN_RADAR_TREND_UINT8: result.exact,
+                RAIN_RADAR_TREND_AREA_UINT8: result.nearby_1km,
+                RAIN_RADAR_START: slotZeroEpoch
+            });
+        }, function(err) {
+            console.log('Rain-radar fetch failed: ' + JSON.stringify(err));
+            // null preserves existing radar on the watch; base class sends [] to clear it
+            callback(null);
+        });
+    }, function(err) {
+        console.log('Rain-radar coords failed: ' + JSON.stringify(err));
+        callback(null);
+    });
+};
+
 module.exports = DwdProvider;
