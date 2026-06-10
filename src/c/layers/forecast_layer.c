@@ -44,11 +44,11 @@
 // pitch = tick_w + 2*pad + bar_w
 //   144-bucket: 1 + 2 + 3 = 6 → 24*6 + 1 = 145 px after the left axis
 //                              (127 px available → overflows by 18, rightmost slots clip)
-//   200-bucket: 1 + 4 + 3 = 8 → 24*8 + 1 = 193 px after the left axis
+//   200-bucket: 1 + 2 + 5 = 8 → 24*8 + 1 = 193 px after the left axis
 //                              (181 px available on emery → overflows by 12, rightmost slots clip)
 #if defined(DISPLAY_WIDTH_200)
-    #define FORECAST_BAR_W 3
-    #define FORECAST_PAD   2
+    #define FORECAST_BAR_W 5
+    #define FORECAST_PAD   1
 #elif defined(DISPLAY_WIDTH_144)
     #define FORECAST_BAR_W 3
     #define FORECAST_PAD   1
