@@ -1,5 +1,6 @@
 // src/c/appendix/rain_tier.c
 #include "rain_tier.h"
+#include "c/appendix/slot_geometry.h"
 
 #define BAR_COLOR PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack)
 
@@ -116,27 +117,21 @@ void rain_tier_bar_draw_slabs(GContext *ctx,
     }
 }
 
-void rain_bars_draw(GContext *ctx, GRect plot_rect,
-                    const uint8_t *tenths, int num_entries) {
-    if (num_entries < 2 || !tenths) {
+void rain_bars_draw(GContext *ctx, GRect plot_rect, SlotGeometry slots,
+                    const uint8_t *tenths) {
+    if (slots.num_slots < 1 || !tenths) {
         return;
     }
 
     const int16_t bar_plot_h = plot_rect.size.h;
     const int16_t bar_plot_bottom = plot_rect.origin.y + bar_plot_h;
-    const float entry_w = (float) plot_rect.size.w / (num_entries - 1);
-    // Bar starts 2 px right of the hour-marker column so the tick at
-    // entry_x stays clear, and is 3 px thinner than the slot so the next
-    // slot's tick also stays clear. Falls back to 1 px when the slot
-    // is too narrow.
-    const int bar_w = (entry_w >= 4.0f) ? (int) entry_w - 3 : 1;
 
-    for (int i = 0; i < num_entries; ++i) {
+    for (int i = 0; i < slots.num_slots; ++i) {
         const int t = tenths[i];
         if (t <= 0) {
             continue;
         }
-        const int bar_x = plot_rect.origin.x + (int)(i * entry_w) + 2;
-        rain_tier_bar_draw_slabs(ctx, bar_x, bar_w, bar_plot_bottom, bar_plot_h, t);
+        const int bar_x = slot_geometry_bar_x(slots, i, plot_rect.origin.x);
+        rain_tier_bar_draw_slabs(ctx, bar_x, slots.bar_w, bar_plot_bottom, bar_plot_h, t);
     }
 }
