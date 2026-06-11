@@ -90,3 +90,7 @@ run = "scripts/composite-version.sh"
 [tasks.gif]
 description = "Assemble a time-lapse GIF from captured frames (args: version platform [fps])"
 run = "scripts/assemble-gif.sh"
+
+[tasks.capture-timelapse]
+description = "Capture radar time-lapse frames on emery+aplite + calendar still (args: version)"
+run = "scripts/capture-timelapse.sh"
