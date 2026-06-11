@@ -19,7 +19,7 @@ fi
 version="$1"
 export FIXTURE="${2:-berlin}"
 raw_dir="screenshot/$version/raw"
-platforms=(basalt diorite emery flint)
+platforms=(aplite basalt diorite emery flint)
 
 # The watch always boots on the calendar view; fixtures that showcase the
 # rain radar need an accel tap to toggle the top view before the screenshot.
