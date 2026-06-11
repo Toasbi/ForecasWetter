@@ -50,7 +50,7 @@ function readEvents() {
  */
 function prune(events, now) {
     return events.filter(function(event) {
-        return typeof event.t === 'number' && now - event.t <= MAX_AGE_MS;
+        return Boolean(event) && typeof event.t === 'number' && now - event.t <= MAX_AGE_MS;
     });
 }
 

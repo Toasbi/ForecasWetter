@@ -74,4 +74,8 @@ assert.deepStrictEqual(devStats.read(), []);
 devStats.record({ type: 'weather', outcome: 'ack', categories: { forecast: 'updated' } });
 assert.strictEqual(devStats.read().length, 1);
 
+// Null/garbage array elements are filtered out, never thrown on
+store[KEYS.DEV_STATS_KEY] = JSON.stringify([null, 42, { k: 'weather', t: Date.now(), c: { forecast: 1 }, ok: 1 }]);
+assert.strictEqual(devStats.read().length, 1, 'null elements must be filtered, not thrown on');
+
 console.log('All dev-stats assertions passed.');
