@@ -61,3 +61,7 @@ bool persist_set_config(Config config);
 bool persist_get_is_sleeping();
 
 bool persist_set_is_sleeping(bool sleeping);
+
+bool persist_get_radar_snooze();
+
+bool persist_set_radar_snooze(bool snooze);

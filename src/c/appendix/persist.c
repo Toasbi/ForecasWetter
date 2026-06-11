@@ -7,7 +7,7 @@ enum key {
     TEMP_TREND, PRECIP_TREND, FORECAST_START, CITY, SUN_EVENT_START_TYPE, SUN_EVENT_TIMES, NUM_ENTRIES,
     CURRENT_TEMP, CONFIG, RAIN_TREND,
     RAIN_RADAR_TREND, RAIN_RADAR_TREND_AREA, RAIN_RADAR_START,
-    IS_SLEEPING
+    IS_SLEEPING, RADAR_SNOOZE
 };
 
 // Setters report whether the stored value actually changed so callers can
@@ -172,4 +172,14 @@ bool persist_get_is_sleeping() {
 
 bool persist_set_is_sleeping(bool sleeping) {
     return write_bool_if_changed(IS_SLEEPING, sleeping);
+}
+
+// Radar-area snooze latch: set on sleep onset, cleared only once a radar
+// payload arrives while awake, so waking never reveals a stale chart.
+bool persist_get_radar_snooze() {
+    return persist_read_bool(RADAR_SNOOZE);
+}
+
+bool persist_set_radar_snooze(bool snooze) {
+    return write_bool_if_changed(RADAR_SNOOZE, snooze);
 }
