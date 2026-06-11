@@ -71,4 +71,7 @@ void snooze_draw(GContext *ctx, GRect area, GColor color) {
         draw_z(ctx, GRect(x, top, sides[i], sides[i]));
         x += sides[i] + gap;
     }
+
+    // Leave the shared GContext tidy for whoever draws next.
+    graphics_context_set_stroke_width(ctx, 1);
 }

@@ -63,6 +63,9 @@
 // ticks extend upward from there into the axis strip.
 #define RADAR_TICK_COLOR PBL_IF_COLOR_ELSE(GColorLightGray, GColorWhite)
 
+// Breathing room around the snooze glyphs inside the layer bounds.
+#define RADAR_SNOOZE_INSET 4
+
 static const ChartConfig RADAR_CHART = {
     .frame = {
         .left   = { 0, GColorClear },
@@ -334,7 +337,7 @@ static void radar_or_snooze_update_proc(Layer *layer, GContext *ctx) {
     if (persist_get_radar_snooze()) {
         // Sleep mode: big snooze glyphs instead of the chart. Latched until
         // fresh radar data arrives after waking (see app_message.c).
-        snooze_draw(ctx, grect_inset(bounds, GEdgeInsets(4)), RADAR_TICK_COLOR);
+        snooze_draw(ctx, grect_inset(bounds, GEdgeInsets(RADAR_SNOOZE_INSET)), RADAR_TICK_COLOR);
         MEMORY_LOG_HEAP("radar_update:exit");
         return;
     }
