@@ -8,6 +8,7 @@
 #include "c/appendix/slot_geometry.h"
 #include "c/appendix/display_width.h"
 #include "c/appendix/chart.h"
+#include "c/appendix/snooze.h"
 
 // Layout constants. The axis area sits above the bar plot. Hour labels
 // share a single vertical strip with the tick row: at hour-aligned slot
@@ -326,9 +327,17 @@ static void draw_radar_exact_bars(GContext *ctx, GRect bar_plot_rect,
     }
 }
 
-static void radar_update_proc(Layer *layer, GContext *ctx) {
+static void radar_or_snooze_update_proc(Layer *layer, GContext *ctx) {
     MEMORY_LOG_HEAP("radar_update:enter");
     GRect bounds = layer_get_bounds(layer);
+
+    if (persist_get_radar_snooze()) {
+        // Sleep mode: big snooze glyphs instead of the chart. Latched until
+        // fresh radar data arrives after waking (see app_message.c).
+        snooze_draw(ctx, grect_inset(bounds, GEdgeInsets(4)), RADAR_TICK_COLOR);
+        MEMORY_LOG_HEAP("radar_update:exit");
+        return;
+    }
 
     // Zero-init: missing persist keys (fresh install) leave the buffers untouched.
     uint8_t exact_tenths[RADAR_NUM_SLOTS] = {0};
@@ -353,7 +362,7 @@ static void radar_update_proc(Layer *layer, GContext *ctx) {
 
 void rain_radar_layer_create(Layer *parent, GRect frame) {
     s_radar_layer = layer_create(frame);
-    layer_set_update_proc(s_radar_layer, radar_update_proc);
+    layer_set_update_proc(s_radar_layer, radar_or_snooze_update_proc);
     layer_set_hidden(s_radar_layer, true);  // calendar wins by default until toggle wiring lands
     layer_add_child(parent, s_radar_layer);
     MEMORY_LOG_HEAP("after_rain_radar_layer_create");
