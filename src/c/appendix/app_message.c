@@ -52,7 +52,7 @@ static bool handle_forecast(DictionaryIterator *iterator, bool *forecast_dirty) 
     return true;
 }
 
-static bool handle_status(DictionaryIterator *iterator, bool *status_dirty) {
+static bool handle_status(DictionaryIterator *iterator, bool *status_dirty, bool *radar_dirty) {
     Tuple *current_temp_tuple = dict_find(iterator, MESSAGE_KEY_CURRENT_TEMP);
     Tuple *city_tuple = dict_find(iterator, MESSAGE_KEY_CITY);
     Tuple *is_sleeping_tuple = dict_find(iterator, MESSAGE_KEY_IS_SLEEPING);
@@ -69,7 +69,15 @@ static bool handle_status(DictionaryIterator *iterator, bool *status_dirty) {
         changed |= persist_set_city((char*) city_tuple->value->cstring);
     }
     if (is_sleeping_tuple) {
-        changed |= persist_set_is_sleeping((bool) is_sleeping_tuple->value->int16);
+        const bool sleeping = (bool) is_sleeping_tuple->value->int16;
+        changed |= persist_set_is_sleeping(sleeping);
+        if (sleeping) {
+            // Sleep onset latches the radar area into snooze immediately.
+            // The latch is only released by a radar payload while awake
+            // (see inbox_received_callback) so waking never reveals a
+            // stale chart.
+            *radar_dirty |= persist_set_radar_snooze(true);
+        }
     }
 
     *status_dirty |= changed;
@@ -95,7 +103,7 @@ static bool handle_sun_events(DictionaryIterator *iterator, bool *forecast_dirty
     return true;
 }
 
-static bool handle_rain_radar(DictionaryIterator *iterator, bool *radar_dirty) {
+static bool handle_rain_radar(DictionaryIterator *iterator, bool *radar_dirty, bool *radar_payload) {
     Tuple *rain_radar_exact_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_UINT8);
     Tuple *rain_radar_area_tuple  = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_TREND_AREA_UINT8);
     Tuple *rain_radar_start_tuple = dict_find(iterator, MESSAGE_KEY_RAIN_RADAR_START);
@@ -129,6 +137,7 @@ static bool handle_rain_radar(DictionaryIterator *iterator, bool *radar_dirty) {
         changed |= persist_set_rain_radar_start(
             (time_t) rain_radar_start_tuple->value->int32);
     }
+    *radar_payload = true;
 
     *radar_dirty |= changed;
     return true;
@@ -196,11 +205,24 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     bool status_dirty = false;    // status row
     bool radar_dirty = false;     // radar chart + top-view availability
     bool config_dirty = false;    // whole window (config feeds every layer)
+    bool radar_payload = false;   // complete radar tuples accepted this inbox
     handled |= handle_forecast(iterator, &forecast_dirty);
-    handled |= handle_status(iterator, &status_dirty);
+    handled |= handle_status(iterator, &status_dirty, &radar_dirty);
     handled |= handle_sun_events(iterator, &forecast_dirty, &status_dirty);
-    handled |= handle_rain_radar(iterator, &radar_dirty);
+    handled |= handle_rain_radar(iterator, &radar_dirty, &radar_payload);
     handled |= handle_clay_config(iterator, &config_dirty);
+
+    // Release the radar-snooze latch only when a complete radar payload
+    // was accepted while awake. Runs after every handler so it can't race
+    // the IS_SLEEPING tuple in the same payload. Also release when awake
+    // with no radar data at all: radarless providers send a constant empty
+    // radar payload that the outbox dedupe suppresses after the first ACK,
+    // so no releasing payload would ever arrive — and with no data there
+    // is no stale chart to reveal (the top view falls back to the calendar).
+    if ((radar_payload || persist_get_rain_radar_start() == 0)
+            && !persist_get_is_sleeping()) {
+        radar_dirty |= persist_set_radar_snooze(false);
+    }
 
     if (config_dirty) {
         main_window_refresh();
