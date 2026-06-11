@@ -86,3 +86,7 @@ run = "screenshot/composite_svg.sh"
 [tasks.composite]
 description = "Composite all raw screenshots for a screenshot version"
 run = "scripts/composite-version.sh"
+
+[tasks.gif]
+description = "Assemble a time-lapse GIF from captured frames (args: version platform [fps])"
+run = "scripts/assemble-gif.sh"
