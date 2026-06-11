@@ -1,4 +1,15 @@
 /**
+ * Parse a value as a base-10 integer for telemetry, omitting invalid input.
+ *
+ * @param {*} value Raw setting value (Clay selects arrive as strings).
+ * @returns {number|undefined} Parsed integer or undefined when not parseable.
+ */
+function toIntOrUndefined(value) {
+    var parsed = parseInt(value, 10);
+    return isFinite(parsed) ? parsed : undefined;
+}
+
+/**
  * Build a compact, allowlisted settings snapshot for telemetry.
  *
  * @param {Object} settings Clay settings object.
@@ -10,6 +21,9 @@ function buildSettingsSnapshot(settings) {
         temperatureUnits: safe.temperatureUnits,
         dayNightShading: !!safe.dayNightShading,
         provider: safe.provider,
+        fetchIntervalMin: toIntOrUndefined(safe.fetchIntervalMin),
+        sleepStartHour: safe.sleepNightEnabled ? toIntOrUndefined(safe.sleepStartHour) : undefined,
+        sleepEndHour: safe.sleepNightEnabled ? toIntOrUndefined(safe.sleepEndHour) : undefined,
         axisTimeFormat: safe.axisTimeFormat,
         timeFont: safe.timeFont,
         timeLeadingZero: !!safe.timeLeadingZero,
