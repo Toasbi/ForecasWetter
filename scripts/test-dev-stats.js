@@ -54,6 +54,13 @@ assert.strictEqual(Object.prototype.hasOwnProperty.call(events[3], 'c'), false, 
 assert.strictEqual(events[4].sent, 0);
 assert.strictEqual(Object.prototype.hasOwnProperty.call(events[4], 'ok'), false);
 
+// Toggling off re-gates recording
+devStats.setEnabled(false);
+var countBefore = devStats.read().length;
+devStats.record({ type: 'weather', outcome: 'ack', categories: { forecast: 'updated' } });
+assert.strictEqual(devStats.read().length, countBefore, 'setEnabled(false) must re-gate recording');
+devStats.setEnabled(true);
+
 // Pruning: events older than 7 days vanish from read() and on the next record()
 var expired = { k: 'weather', t: Date.now() - 8 * DAY_MS, c: { forecast: 1 }, ok: 1 };
 store[KEYS.DEV_STATS_KEY] = JSON.stringify([expired].concat(devStats.read()));
