@@ -555,7 +555,7 @@ static void draw_precip_area(GContext *ctx, GRect content,
     for (int i = 0; i < slots.num_slots; ++i) {
         const int tick_x = slot_geometry_tick_x(slots, i, anchor_x);
         const int precip = precips[i];
-        const int precip_h = (float) precip / 100.0 * plot_h;
+        const int precip_h = (float) precip / 100.0f * plot_h;
         s_points_precip[i] = GPoint(tick_x, plot_bottom - precip_h);
     }
     s_points_precip[slots.num_slots]     = GPoint(grid_right, plot_bottom);

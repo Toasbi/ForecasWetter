@@ -19,11 +19,11 @@ void min_max(int16_t *array, int n, int *min, int *max) {
 
 int roundFloat(float num) 
 { 
-    return num < 0 ? num - 0.5 : num + 0.5; 
+    return num < 0 ? num - 0.5f : num + 0.5f;
 } 
   
 
 int f_to_c(int temp_f) {
     // Convert a fahrenheit temperature to celcius
-    return roundFloat((temp_f - 32) * 5.0 / 9);
+    return roundFloat((temp_f - 32) * 5.0f / 9.0f);
 }
