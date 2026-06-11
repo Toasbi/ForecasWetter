@@ -18,6 +18,19 @@ A weather watchface for Pebble inspired by ForecasWatch, with a 24-hour forecast
 | --- | --- | --- |
 | <img src="screenshot/v1.0.0/composite/pebble-time-red.png" alt="Pebble Time screenshot"> | <img src="screenshot/v1.0.0/composite/pebble2-duo-white.png" alt="Pebble 2 Duo screenshot"> | <img src="screenshot/v1.0.0/composite/pebble-time2-red.png" alt="Pebble Time 2 screenshot"> |
 
+### Rain radar over time
+
+The radar view as the clock advances across sunset: the 5-minute rain frames step forward, the
+forecast graph slides, and night shading kicks in.
+
+| Pebble Time 2 (emery) | Pebble Classic (aplite) |
+| --- | --- |
+| <img src="screenshot/v1.0.0/timelapse/emery.gif" alt="Rain radar time-lapse on Pebble Time 2"> | <img src="screenshot/v1.0.0/timelapse/aplite.gif" alt="Rain radar time-lapse on Pebble Classic"> |
+
+### Calendar
+
+<img src="screenshot/v1.0.0/calendar/basalt.png" alt="Three-week calendar view">
+
 ## Features
 
 **Time**
@@ -61,6 +74,7 @@ Pebble Classic, Pebble Steel, Pebble Time, Pebble Time Steel, Pebble 2, and Pebb
 
 ## Installation
 
+<!-- TODO: replace every <app-id> below (and in the badge URLs at the top) once the store listing is live -->
 ### Pebble Appstore
 
 - RePebble: https://apps.repebble.com/<app-id>
