@@ -3,17 +3,23 @@
  *
  * Payload keys are grouped into categories that match the screen areas on the
  * watch (forecast chart, status row, sun events, rain radar, sleep state, Clay
- * config). The last-sent serialization of each category is cached in
- * localStorage; only categories whose content actually changed are bundled
- * into the outgoing AppMessage. When nothing changed, no message is sent at
- * all — Bluetooth is the most battery-expensive part of a fetch cycle.
+ * config). PayloadComparator checks each category's content against the
+ * last-sent serialization cached in localStorage; only categories whose
+ * content actually changed are bundled into the outgoing AppMessage. When
+ * nothing changed, no message is sent at all — Bluetooth is the most
+ * battery-expensive part of a fetch cycle.
  *
  * All changed categories ride in ONE Pebble.sendAppMessage call: the channel
  * is half-duplex, so back-to-back sends would collide. Caches are committed
  * only in the ACK callback, so a NACKed category is retried on the next send.
+ *
+ * Every compare/send cycle is reported to dev-stats as a semantic descriptor
+ * (skip immediately; ack/nack from the AppMessage callbacks).
  */
 
 var KEYS = require('./storage-keys');
+var PayloadComparator = require('./payload-comparator');
+var devStats = require('./dev-stats');
 
 /** Weather categories, each mapping a cache key to its AppMessage keys. */
 var WEATHER_CATEGORIES = [
@@ -45,23 +51,19 @@ var WEATHER_CATEGORIES = [
 ];
 
 /**
- * Extract the subset of `payload` belonging to a category, in the category's
- * fixed key order so the serialization is stable across calls.
+ * Distill a comparison result into the dev-stats descriptor.
  *
- * @param {Object} payload Full candidate payload.
- * @param {Object} category Entry from WEATHER_CATEGORIES.
- * @returns {Object|null} Subset object, or null when none of the keys are present.
+ * @param {string} type 'weather' or 'setting'.
+ * @param {Object} result PayloadComparator result.
+ * @param {string} outcome 'ack', 'nack', or 'skip'.
+ * @returns {{type: string, outcome: string, categories: Object}} Descriptor for devStats.record().
  */
-function categorySubset(payload, category) {
-    var subset = {};
-    var present = false;
-    category.keys.forEach(function(key) {
-        if (Object.prototype.hasOwnProperty.call(payload, key)) {
-            subset[key] = payload[key];
-            present = true;
-        }
+function statsDescriptor(type, result, outcome) {
+    var categories = {};
+    result.categories.forEach(function(entry) {
+        categories[entry.name] = entry.changed ? 'updated' : 'cached';
     });
-    return present ? subset : null;
+    return { type: type, outcome: outcome, categories: categories };
 }
 
 /**
@@ -75,30 +77,27 @@ function categorySubset(payload, category) {
  * @returns {void}
  */
 function sendChangedCategories(payload, categories, label, onSuccess, onFailure) {
+    var statsType = label === 'clay' ? 'setting' : 'weather';
+    var result = new PayloadComparator(categories).compare(payload);
+    var changed = result.categories.filter(function(entry) {
+        return entry.changed;
+    });
     var outgoing = {};
-    var pendingCacheWrites = [];
     var changedNames = [];
 
-    categories.forEach(function(category) {
-        var subset = categorySubset(payload, category);
-        if (subset === null) {
-            return;  // Category absent from this payload; leave its cache alone.
-        }
-        var serialized = JSON.stringify(subset);
-        if (serialized === localStorage.getItem(category.cacheKey)) {
-            return;  // Unchanged since the last ACKed send.
-        }
-        category.keys.forEach(function(key) {
-            if (Object.prototype.hasOwnProperty.call(subset, key)) {
-                outgoing[key] = subset[key];
+    changed.forEach(function(entry) {
+        var key;
+        for (key in entry.subset) {
+            if (Object.prototype.hasOwnProperty.call(entry.subset, key)) {
+                outgoing[key] = entry.subset[key];
             }
-        });
-        pendingCacheWrites.push({ cacheKey: category.cacheKey, serialized: serialized });
-        changedNames.push(category.name);
+        }
+        changedNames.push(entry.name);
     });
 
-    if (pendingCacheWrites.length === 0) {
+    if (changed.length === 0) {
         console.log('Outbox: ' + label + ' unchanged, skipping send.');
+        devStats.record(statsDescriptor(statsType, result, 'skip'));
         if (typeof onSuccess === 'function') {
             onSuccess();
         }
@@ -108,14 +107,16 @@ function sendChangedCategories(payload, categories, label, onSuccess, onFailure)
     console.log('Outbox: sending ' + label + ' categories: ' + changedNames.join(', '));
     Pebble.sendAppMessage(outgoing, function() {
         // Commit caches only after the watch ACKed, so NACKs retry next time.
-        pendingCacheWrites.forEach(function(write) {
-            localStorage.setItem(write.cacheKey, write.serialized);
+        changed.forEach(function(entry) {
+            localStorage.setItem(entry.cacheKey, entry.serialized);
         });
+        devStats.record(statsDescriptor(statsType, result, 'ack'));
         console.log('Outbox: ' + label + ' sent successfully.');
         if (typeof onSuccess === 'function') {
             onSuccess();
         }
     }, function(e) {
+        devStats.record(statsDescriptor(statsType, result, 'nack'));
         console.log('Outbox: ' + label + ' send failed: ' + JSON.stringify(e));
         if (typeof onFailure === 'function') {
             onFailure(e);
