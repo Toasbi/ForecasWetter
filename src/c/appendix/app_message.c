@@ -242,12 +242,6 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
         // a cleared radar falls back to the calendar.
         main_window_apply_top_view();
     }
-    if (radar_payload) {
-        // Reset the self-advance timer so the watch waits a fresh interval
-        // before synthesizing the next advance.
-        rain_radar_layer_note_update();
-    }
-
     if (!handled) {
         APP_LOG(APP_LOG_LEVEL_WARNING, "Bad payload received in app_message.c");
     }
