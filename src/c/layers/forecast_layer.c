@@ -608,7 +608,6 @@ typedef struct {
     GraphFrame  frame;
     TickSide    bottom;
     int         num_slots;
-    int         pitch;
     struct tm  *forecast_start_local;
 } ForecastTickCtx;
 
@@ -642,18 +641,16 @@ static void forecast_tick_callback(GContext *ctx, int idx, int tick_x, void *use
         char buf[4];
         snprintf(buf, sizeof(buf), "%d",
                  config_axis_hour(c->forecast_start_local->tm_hour + idx));
+        const int label_left_pad = 3; // nudge hour digits left to sit over their slot
         graphics_draw_text(ctx, buf,
                            fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(tick_x - 20,
+                           GRect(tick_x - 20 - label_left_pad,
                                  axis_y - BOTTOM_AXIS_FONT_OFFSET,
                                  40, BOTTOM_AXIS_H),
                            GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
     } else if (n > 0 && (idx % n) == n / 2) {
-        // Odd n: slot n/2 sits pitch/2 short of the true midpoint between
-        // the surrounding labels — nudge the tick so it reads as centred.
-        const int mid_x = tick_x + ((n % 2) ? c->pitch / 2 : 0);
         tick_side_draw_at(ctx, c->outer, c->frame, GRAPH_SIDE_BOTTOM,
-                          c->bottom, idx, mid_x);
+                          c->bottom, idx, tick_x);
     }
 #endif
 }
@@ -675,7 +672,6 @@ static void draw_bottom_axis(GContext *ctx, GRect outer, ChartGeometry chart,
         .frame                = cfg->frame,
         .bottom               = bottom,
         .num_slots            = chart.slots.num_slots,
-        .pitch                = chart.slots.pitch,
         .forecast_start_local = forecast_start_local,
     };
     // Ticks/labels anchor in the left-border column — one tick_w to the
