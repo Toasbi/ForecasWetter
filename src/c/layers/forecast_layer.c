@@ -559,8 +559,9 @@ static void forecast_fill_axis_slots(ChartAxisSlot *slots, int num_slots,
 }
 
 typedef struct {
-    GRect                plot_rect;   // stage 1: pre-phase-3 compat mapping;
-                                      // stage 2 switches this to the grid rect
+    GRect                plot_rect;   // spans the full slot grid so night edges
+                                      // land on their hour columns (stage-2 fix;
+                                      // was the pre-phase-3 compat mapping)
     time_t               start, end;
     const NightSegments *night;
     const GPoint        *precip_pts;
@@ -632,8 +633,11 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
                              bounds.size.w, forecast_start_local);
 
     NightLayerCtx night_ctx = {
-        .plot_rect  = GRect(graph_bounds.origin.x, 0,
-                            graph_bounds.size.w, outer.size.h - 1),
+        .plot_rect  = GRect(outer.origin.x, 0,
+                            MAX_FORECAST_ENTRIES
+                                * chart_def_pitch(&FORECAST_DEF)
+                                + FORECAST_DEF.tick_w,
+                            outer.size.h - 1),
         .start      = forecast_start,
         .end        = forecast_end,
         .night      = &night_segments,
