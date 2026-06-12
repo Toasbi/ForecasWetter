@@ -3,8 +3,8 @@
  *
  * Payload keys are grouped into categories that match the screen areas on the
  * watch (forecast chart, status row, sun events, rain radar, sleep state, Clay
- * config). PayloadComparator checks each category's content against the
- * last-sent serialization cached in localStorage; only categories whose
+ * config). ChangeDetector checks each category's content against the
+ * last-sent state cached in localStorage; only categories whose
  * content actually changed are bundled into the outgoing AppMessage. When
  * nothing changed, no message is sent at all — Bluetooth is the most
  * battery-expensive part of a fetch cycle.
@@ -18,7 +18,7 @@
  */
 
 var KEYS = require('./storage-keys');
-var PayloadComparator = require('./payload-comparator');
+var ChangeDetector = require('./change-detector');
 var devStats = require('./dev-stats');
 
 /** Weather categories, each mapping a cache key to its AppMessage keys. */
@@ -54,7 +54,7 @@ var WEATHER_CATEGORIES = [
  * Distill a comparison result into the dev-stats descriptor.
  *
  * @param {string} type 'weather' or 'setting'.
- * @param {Object} result PayloadComparator result.
+ * @param {Object} result ChangeDetector result.
  * @param {string} outcome 'ack', 'nack', or 'skip'.
  * @returns {{type: string, outcome: string, categories: Object}} Descriptor for devStats.record().
  */
@@ -78,7 +78,7 @@ function statsDescriptor(type, result, outcome) {
  */
 function sendChangedCategories(payload, categories, label, onSuccess, onFailure) {
     var statsType = label === 'clay' ? 'setting' : 'weather';
-    var result = new PayloadComparator(categories).compare(payload);
+    var result = new ChangeDetector(categories).detect(payload);
     var changed = result.categories.filter(function(entry) {
         return entry.changed;
     });
