@@ -26,6 +26,7 @@ typedef struct {
     GColor color_us_federal;
     GColor color_time;
     bool day_night_shading;
+    int16_t fetch_interval_min;
 } Config;
 
 extern Config *g_config;
