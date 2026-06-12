@@ -49,17 +49,20 @@ static inline int chart_clamp_count(const ChartRender *r, int count) {
     return count;
 }
 
-// Stage-1 label placement constants — reproduce current pixels exactly.
-// Stage 2 may simplify these into one per-side rule (spec §6).
+// Label placement constants — per-side/per-platform font-whitespace and
+// optical-centering geometry, in one place (the engine label convention).
 #ifdef PBL_PLATFORM_EMERY
     // emery: digits sit in the reserved strip below the axis row
     #define CHART_LABEL_BOTTOM_DY   6
     #define CHART_LABEL_BOTTOM_H   14
-    #define CHART_LABEL_NUDGE_X     0
+    #define CHART_LABEL_NUDGE_X     0   // wide pitch: centered digit already sits on its column
 #else
     #define CHART_LABEL_BOTTOM_DY  (-4)  // GOTHIC_14 top-whitespace pull-up
     #define CHART_LABEL_BOTTOM_H   10
-    #define CHART_LABEL_NUDGE_X    (-3)  // small-screen left nudge (stage-2 candidate)
+    #define CHART_LABEL_NUDGE_X    (-3)  // narrow pitch: a centered GOTHIC_14 digit reads ~3px
+                                         // right of its tick column — pull the box back so the
+                                         // digit sits on the column. Permanent (the stage-2
+                                         // "center on column" experiment misaligned on-device).
 #endif
 #define CHART_LABEL_TOP_RAISE 15
 #define CHART_LABEL_TOP_H     14
