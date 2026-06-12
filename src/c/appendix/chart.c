@@ -124,6 +124,71 @@ static inline int chart_clamp_count(const ChartRender *r, int count) {
     return count;
 }
 
+// Stage-1 label placement constants — reproduce current pixels exactly.
+// Stage 2 may simplify these into one per-side rule (spec §6).
+#ifdef PBL_PLATFORM_EMERY
+    // emery: digits sit in the reserved strip below the axis row
+    #define CHART_LABEL_BOTTOM_DY   6
+    #define CHART_LABEL_BOTTOM_H   14
+    #define CHART_LABEL_NUDGE_X     0
+#else
+    #define CHART_LABEL_BOTTOM_DY  (-4)  // GOTHIC_14 top-whitespace pull-up
+    #define CHART_LABEL_BOTTOM_H   10
+    #define CHART_LABEL_NUDGE_X    (-3)  // small-screen left nudge (stage-2 candidate)
+#endif
+#define CHART_LABEL_TOP_RAISE 15
+#define CHART_LABEL_TOP_H     14
+
+static void chart_draw_tick(const ChartRender *r, GraphSide side,
+                            int len, GColor color, int x) {
+    if (len <= 0) return;
+    graphics_context_set_stroke_color(r->ctx, color);
+    graphics_context_set_stroke_width(r->ctx, 1);
+    if (side == GRAPH_SIDE_BOTTOM) {
+        const int y0 = r->outer.origin.y + r->outer.size.h - 1;
+        graphics_draw_line(r->ctx, GPoint(x, y0), GPoint(x, y0 + len));
+    } else {  // GRAPH_SIDE_TOP
+        const int y0 = r->outer.origin.y - 1;
+        graphics_draw_line(r->ctx, GPoint(x, y0), GPoint(x, y0 - len));
+    }
+}
+
+static void chart_draw_axis_label(const ChartRender *r, GraphSide side,
+                                  const char *text, GFont font, int x) {
+    GRect box;
+    if (side == GRAPH_SIDE_BOTTOM) {
+        const int axis_y = r->outer.origin.y + r->outer.size.h - 1;
+        box = GRect(x - 20 + CHART_LABEL_NUDGE_X,
+                    axis_y + CHART_LABEL_BOTTOM_DY, 40, CHART_LABEL_BOTTOM_H);
+    } else {
+        box = GRect(x - 20, r->outer.origin.y - CHART_LABEL_TOP_RAISE,
+                    40, CHART_LABEL_TOP_H);
+    }
+    graphics_draw_text(r->ctx, text, font, box,
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+}
+
+static void chart_render_axis(const ChartRender *r, const ChartAxisLayer *a) {
+    graphics_context_set_text_color(r->ctx, GColorWhite);
+    const GFont font     = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+    const int  mid_shift = r->geo.slots.pitch / 2;
+    for (int i = 0; i < r->def->num_slots; ++i) {
+        const ChartAxisSlot *s = &a->slots[i];
+        const int base = chart_slot_tick_x(&r->geo, i);
+        if (s->tick != TICK_NONE) {
+            const bool big = (s->tick == TICK_BIG);
+            chart_draw_tick(r, a->side,
+                            big ? a->style.big_length : a->style.length,
+                            big ? a->style.big_color  : a->style.color,
+                            base + (a->tick_align == ALIGN_MIDDLE ? mid_shift : 0));
+        }
+        if (s->label[0] != '\0') {
+            chart_draw_axis_label(r, a->side, s->label, font,
+                                  base + (a->label_align == ALIGN_MIDDLE ? mid_shift : 0));
+        }
+    }
+}
+
 void chart_draw(GContext *ctx, const ChartDef *def, GRect outer,
                 const ChartLayer *layers, int num_layers) {
     ChartRender r = {
@@ -140,6 +205,9 @@ void chart_draw(GContext *ctx, const ChartDef *def, GRect outer,
                 break;
             case CHART_LAYER_CUSTOM:
                 l->custom.fn(&r, l->custom.user);
+                break;
+            case CHART_LAYER_AXIS:
+                chart_render_axis(&r, &l->axis);
                 break;
             default:
                 break;  // remaining renderers land in follow-up commits
