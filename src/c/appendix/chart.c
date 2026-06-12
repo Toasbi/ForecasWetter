@@ -189,6 +189,52 @@ static void chart_render_axis(const ChartRender *r, const ChartAxisLayer *a) {
     }
 }
 
+static int chart_scale_h(int v, int lo, int hi, int plot_h) {
+    const int range = hi - lo;
+    if (range <= 0) return 0;
+    return (int)(((int32_t)(v - lo) * plot_h) / range);
+}
+
+static void chart_render_bars(const ChartRender *r, const ChartBarsLayer *b) {
+    const GRect c          = r->geo.content;
+    const int  plot_h      = c.size.h;
+    const int  plot_bottom = c.origin.y + c.size.h;
+    const int  count       = chart_clamp_count(r, b->count);
+    if (plot_h <= 0 || b->num_stops < 1) return;
+
+    for (int i = 0; i < count; ++i) {
+        const int v = b->values[i];
+        if (v <= b->lo) continue;
+        int bar_h = chart_scale_h(v, b->lo, b->hi, plot_h);
+        if (bar_h < 1) bar_h = 1;
+        const int bar_x   = chart_slot_bar_x(&r->geo, i);
+        const int bar_top = plot_bottom - bar_h;
+
+        for (int k = 0; k < b->num_stops; ++k) {
+            int seg_bottom = plot_bottom
+                           - chart_scale_h(b->stops[k].from, b->lo, b->hi, plot_h);
+            int seg_top = (k + 1 < b->num_stops)
+                ? plot_bottom - chart_scale_h(b->stops[k + 1].from, b->lo, b->hi, plot_h)
+                : bar_top;
+            if (seg_top < bar_top)       seg_top    = bar_top;     // clamp at value
+            if (seg_bottom > plot_bottom) seg_bottom = plot_bottom;
+            const int seg_h = seg_bottom - seg_top;
+            if (seg_h <= 0) continue;
+            graphics_context_set_fill_color(r->ctx, b->stops[k].color);
+            graphics_fill_rect(r->ctx,
+                GRect(bar_x, seg_top, r->def->bar_w, seg_h), 0, GCornerNone);
+        }
+
+        if (b->style == BAR_OUTLINED) {
+            // B&W: white silhouette keeps black bars readable on black
+            graphics_context_set_stroke_color(r->ctx, GColorWhite);
+            graphics_context_set_stroke_width(r->ctx, 1);
+            graphics_draw_rect(r->ctx,
+                GRect(bar_x, bar_top, r->def->bar_w, bar_h));
+        }
+    }
+}
+
 void chart_draw(GContext *ctx, const ChartDef *def, GRect outer,
                 const ChartLayer *layers, int num_layers) {
     ChartRender r = {
@@ -208,6 +254,9 @@ void chart_draw(GContext *ctx, const ChartDef *def, GRect outer,
                 break;
             case CHART_LAYER_AXIS:
                 chart_render_axis(&r, &l->axis);
+                break;
+            case CHART_LAYER_BARS:
+                chart_render_bars(&r, &l->bars);
                 break;
             default:
                 break;  // remaining renderers land in follow-up commits
