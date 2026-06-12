@@ -20,6 +20,7 @@
 var KEYS = require('./storage-keys');
 var ChangeDetector = require('./change-detector');
 var devStats = require('./dev-stats');
+var radarDedupe = require('./weather/radar-dedupe');
 
 /** Weather categories, each mapping a cache key to its AppMessage keys. */
 var WEATHER_CATEGORIES = [
@@ -41,7 +42,8 @@ var WEATHER_CATEGORIES = [
     {
         name: 'radar',
         cacheKey: KEYS.LAST_SENT_RADAR_KEY,
-        keys: ['RAIN_RADAR_TREND_UINT8', 'RAIN_RADAR_TREND_AREA_UINT8', 'RAIN_RADAR_START']
+        keys: ['RAIN_RADAR_TREND_UINT8', 'RAIN_RADAR_TREND_AREA_UINT8', 'RAIN_RADAR_START'],
+        comparator: radarDedupe.radarComparator
     },
     {
         name: 'sleep',
