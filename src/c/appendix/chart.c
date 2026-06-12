@@ -164,7 +164,7 @@ static void chart_render_line(const ChartRender *r, const ChartLineLayer *l) {
     const int count = chart_clamp_count(r, l->count);
     if (count < 2) return;
 
-    GPoint        buf[CHART_MAX_SLOTS];
+    static GPoint buf[CHART_MAX_SLOTS];  // aplite: per-frame scratch must be static, not stack
     const GPoint *pts = l->points;
     if (pts == NULL) {
         GPoint *out = l->export_points ? l->export_points : buf;
@@ -193,7 +193,7 @@ static void chart_render_area(const ChartRender *r, const ChartAreaLayer *a) {
     const int count = chart_clamp_count(r, a->count);
     if (count < 1) return;
 
-    GPoint  buf[CHART_MAX_SLOTS + 2];
+    static GPoint buf[CHART_MAX_SLOTS + 2];  // aplite: per-frame scratch must be static, not stack
     GPoint *pts = a->export_points ? a->export_points : buf;
     const GRect c          = r->geo.content;
     const int  plot_bottom = c.origin.y + c.size.h;

@@ -272,9 +272,12 @@ static void radar_or_snooze_update_proc(Layer *layer, GContext *ctx) {
                               bounds.size.w,
                               bounds.size.h - RADAR_AXIS_H);
 
-    int16_t exact_pm[RADAR_NUM_SLOTS];
+    // Module-static scratch (not stack): aplite's small app stack overflows
+    // otherwise (PC=0/LR=0). Safe — single layer instance, single-threaded,
+    // both recomputed each redraw before use.
+    static int16_t exact_pm[RADAR_NUM_SLOTS];
     rain_tier_fill_permille(exact_tenths, exact_pm, RADAR_NUM_SLOTS);
-    ChartAxisSlot axis_slots[RADAR_NUM_SLOTS];
+    static ChartAxisSlot axis_slots[RADAR_NUM_SLOTS];
     radar_fill_axis_slots(axis_slots, persist_get_rain_radar_start());
     RadarAreaCtx area_ctx = {
         .exact_tenths = exact_tenths,

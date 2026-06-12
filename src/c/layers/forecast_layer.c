@@ -616,11 +616,13 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
                               grid_right - graph_bounds.origin.x + 1,
                               axis_y + 1);
 
-    // Per-redraw data prep + layer list — all stack, no heap.
-    int16_t precip_vals[MAX_FORECAST_ENTRIES];
-    int16_t rain_pm[MAX_FORECAST_ENTRIES];
-    GPoint  precip_pts[MAX_FORECAST_ENTRIES + 2];
-    ChartAxisSlot axis_slots[MAX_FORECAST_ENTRIES];
+    // Per-redraw data prep + layer list. The scratch arrays are module-static
+    // (not stack): aplite's small app stack overflows otherwise (PC=0/LR=0).
+    // Safe — single layer instance, single-threaded, all recomputed each redraw.
+    static int16_t precip_vals[MAX_FORECAST_ENTRIES];
+    static int16_t rain_pm[MAX_FORECAST_ENTRIES];
+    static GPoint  precip_pts[MAX_FORECAST_ENTRIES + 2];
+    static ChartAxisSlot axis_slots[MAX_FORECAST_ENTRIES];
     for (int i = 0; i < ds.num_entries; ++i) {
         precip_vals[i] = ds.precip_probs[i];           // uint8 -> int16, raw %
     }
@@ -643,7 +645,7 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
 
     // Z-order = array order, bottom first. Frame after the data bands so it
     // overwrites curve/area pixels at the border columns.
-    ChartLayer layers[8];
+    static ChartLayer layers[8];  // aplite: largest redraw array — must be static, not stack
     int n = 0;
     layers[n++] = (ChartLayer){ CHART_LAYER_AREA, .area = {
         .values = precip_vals, .export_points = precip_pts,
