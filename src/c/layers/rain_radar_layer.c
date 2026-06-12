@@ -27,6 +27,9 @@
 #define RADAR_SLOT_SECONDS      (5 * 60)
 #define RADAR_WINDOW_SECONDS    (RADAR_NUM_SLOTS * RADAR_SLOT_SECONDS)
 #define HOUR_SECONDS            3600
+// Grace period after a scheduled update is due before the watch synthesizes an
+// advance, giving PKJS time to deliver. No existing minute/second constant fits.
+#define RADAR_ADVANCE_BUFFER_SECONDS 60
 
 // Bar growth direction. true flips the radar top-down (rain hanging
 // from the axis); false keeps the conventional bottom-up layout. Both
@@ -90,6 +93,7 @@ static const ChartConfig RADAR_CHART = {
 };
 
 static Layer *s_radar_layer;
+static time_t s_last_radar_update;  // wall-clock of the last radar arrival or self-advance
 
 // True when tick index `i` (0..RADAR_NUM_SLOTS) lands exactly on a
 // whole-hour wall-clock boundary that will actually carry a label,
@@ -368,11 +372,61 @@ void rain_radar_layer_create(Layer *parent, GRect frame) {
     layer_set_update_proc(s_radar_layer, radar_or_snooze_update_proc);
     layer_set_hidden(s_radar_layer, true);  // calendar wins by default until toggle wiring lands
     layer_add_child(parent, s_radar_layer);
+    s_last_radar_update = time(NULL);
     MEMORY_LOG_HEAP("after_rain_radar_layer_create");
 }
 
 void rain_radar_layer_refresh(void) {
     layer_mark_dirty(s_radar_layer);
+}
+
+void rain_radar_layer_note_update(void) {
+    s_last_radar_update = time(NULL);
+}
+
+bool rain_radar_layer_tick(time_t now) {
+    const time_t start = persist_get_rain_radar_start();
+    if (start <= 0) {
+        return false;  // no radar window to advance
+    }
+    if (!connection_service_peek_pebble_app_connection()) {
+        return false;  // Bluetooth down: freeze the last real window
+    }
+    int interval_min = (g_config && g_config->fetch_interval_min > 0)
+                     ? g_config->fetch_interval_min : 30;
+    const time_t due = s_last_radar_update
+                     + (time_t)interval_min * 60 + RADAR_ADVANCE_BUFFER_SECONDS;
+    if (now < due) {
+        return false;  // a scheduled update could still arrive
+    }
+
+    int count = (int)((now - start) / RADAR_SLOT_SECONDS);
+    if (count <= 0) {
+        return false;  // already current
+    }
+    if (count > RADAR_NUM_SLOTS) {
+        count = RADAR_NUM_SLOTS;  // window fully rolled to empty
+    }
+
+    uint8_t exact[RADAR_NUM_SLOTS] = {0};
+    uint8_t area[RADAR_NUM_SLOTS] = {0};
+    persist_get_rain_radar_trend(exact, RADAR_NUM_SLOTS);
+    persist_get_rain_radar_trend_area(area, RADAR_NUM_SLOTS);
+
+    uint8_t new_exact[RADAR_NUM_SLOTS] = {0};
+    uint8_t new_area[RADAR_NUM_SLOTS] = {0};
+    for (int i = 0; i + count < RADAR_NUM_SLOTS; i += 1) {
+        new_exact[i] = exact[i + count];
+        new_area[i] = area[i + count];
+    }
+    // Slots [RADAR_NUM_SLOTS - count .. ] stay zero (the zero-initialised tail).
+
+    persist_set_rain_radar_trend(new_exact, RADAR_NUM_SLOTS);
+    persist_set_rain_radar_trend_area(new_area, RADAR_NUM_SLOTS);
+    persist_set_rain_radar_start(start + (time_t)count * RADAR_SLOT_SECONDS);
+    s_last_radar_update = now;
+    rain_radar_layer_refresh();
+    return true;
 }
 
 void rain_radar_layer_destroy(void) {
