@@ -144,11 +144,17 @@ Pebble.addEventListener('webviewclosed', function(e) {
     app.settings = getClaySettings();  // This reads from localStorage in sensible format
     devStats.setEnabled(Boolean(app.settings.devStatsEnabled));
     app.telemetry = createTelemetryClient(getRuntimeTelemetryConfig());
-    refreshProvider();
+    var providerOrLocationChanged = refreshProvider();
     sendClaySettings();
 
+    if (providerOrLocationChanged) {
+        // Location/provider change makes the watch's current data wrong; drop
+        // the last-sent caches so the next fetch resends every category.
+        outbox.clearWeatherCaches();
+    }
+
     // Fetching goes last, after other settings have been handled
-    if (app.settings.fetch === true) {
+    if (app.settings.fetch === true || providerOrLocationChanged) {
         console.log('Force fetch!');
         fetch(app.provider, true);
     }
@@ -568,15 +574,24 @@ function sendClaySettings(onSuccess, onFailure) {
 }
 
 function refreshProvider() {
+    var hadProvider = Boolean(app.provider);
     var oldLocation = app.provider ? app.provider.location : null;
+    var oldProviderId = app.provider ? app.provider.id : null;
     setProvider(app.settings.provider);
     app.provider.location = app.settings.location === '' ? null : app.settings.location;
 
+    var locationChanged = oldLocation !== app.provider.location;
+    var providerChanged = oldProviderId !== app.provider.id;
+
     // Clear geocode cache when location changes so a fresh lookup always happens
-    if (oldLocation !== app.provider.location) {
+    if (locationChanged) {
         localStorage.removeItem(KEY_GEOCODE_CACHE);
         localStorage.removeItem(KEY_GEOCODE_BACKOFF);
     }
+
+    // Report a change only when reconciling an already-initialized provider
+    // (a settings update), not the first setup at startup.
+    return hadProvider && (locationChanged || providerChanged);
 }
 
 function setProvider(providerId) {
