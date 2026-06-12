@@ -221,8 +221,16 @@ module.exports = [
                 "label": "Update interval",
                 "messageKey": "fetchIntervalMin",
                 "defaultValue": "30",
-                "description": "How often to refresh weather data. Longer intervals save battery and reduce API usage.",
+                "description": "Updates only send what actually changed (deltas), so short intervals like 5 min stay battery- and data-friendly. Longer intervals reduce API usage further.",
                 "options": [
+                    {
+                        "label": "5 minutes",
+                        "value": "5"
+                    },
+                    {
+                        "label": "10 minutes",
+                        "value": "10"
+                    },
                     {
                         "label": "15 minutes",
                         "value": "15"
