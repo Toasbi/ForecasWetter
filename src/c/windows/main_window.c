@@ -153,10 +153,18 @@ static void minute_handler(struct tm *tick_time, TimeUnits units_changed) {
     }
     status_icons_refresh();
     loading_layer_refresh();
+#ifndef WW_FIXTURE_NOW_YEAR
+    // Live builds only: advance the radar window when a fetch boundary passes.
+    // Fixtures are frozen snapshots anchored to the fixture clock — their window
+    // must never self-advance. time(NULL) is the real wall clock even in fixture
+    // builds (watch_services_now() freezes it for display but mktime/TZ/DST make
+    // it unsafe to compare against the JS-derived radar start), so the advance
+    // logic would roll the whole window to empty and re-anchor to real time.
     if (rain_radar_layer_tick(time(NULL))) {
         // Window advanced — re-evaluate the top view, mirroring the arrival path.
         main_window_apply_top_view();
     }
+#endif
 }
 
 /*----------------------------
