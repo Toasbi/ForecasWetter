@@ -27,9 +27,10 @@
 #define RADAR_SLOT_SECONDS      (5 * 60)
 #define RADAR_WINDOW_SECONDS    (RADAR_NUM_SLOTS * RADAR_SLOT_SECONDS)
 #define HOUR_SECONDS            3600
-// Grace period after a scheduled update is due before the watch synthesizes an
-// advance, giving PKJS time to deliver. No existing minute/second constant fits.
-#define RADAR_ADVANCE_BUFFER_SECONDS 60
+// Grace after a grid fetch boundary before the watch synthesizes an advance,
+// giving PKJS time to deliver the real frame. 55s (not 60) so the gate clears
+// strictly before the next minute tick, which then reliably redraws.
+#define RADAR_ADVANCE_BUFFER_SECONDS 55
 
 // Bar growth direction. true flips the radar top-down (rain hanging
 // from the axis); false keeps the conventional bottom-up layout. Both
@@ -93,7 +94,6 @@ static const ChartConfig RADAR_CHART = {
 };
 
 static Layer *s_radar_layer;
-static time_t s_last_radar_update;  // wall-clock of the last radar arrival or self-advance
 
 // True when tick index `i` (0..RADAR_NUM_SLOTS) lands exactly on a
 // whole-hour wall-clock boundary that will actually carry a label,
@@ -372,16 +372,11 @@ void rain_radar_layer_create(Layer *parent, GRect frame) {
     layer_set_update_proc(s_radar_layer, radar_or_snooze_update_proc);
     layer_set_hidden(s_radar_layer, true);  // calendar wins by default until toggle wiring lands
     layer_add_child(parent, s_radar_layer);
-    s_last_radar_update = time(NULL);
     MEMORY_LOG_HEAP("after_rain_radar_layer_create");
 }
 
 void rain_radar_layer_refresh(void) {
     layer_mark_dirty(s_radar_layer);
-}
-
-void rain_radar_layer_note_update(void) {
-    s_last_radar_update = time(NULL);
 }
 
 bool rain_radar_layer_tick(time_t now) {
@@ -392,17 +387,33 @@ bool rain_radar_layer_tick(time_t now) {
     if (!connection_service_peek_pebble_app_connection()) {
         return false;  // Bluetooth down: freeze the last real window
     }
+
     int interval_min = (g_config && g_config->fetch_interval_min > 0)
                      ? g_config->fetch_interval_min : 30;
-    const time_t due = s_last_radar_update
-                     + (time_t)interval_min * 60 + RADAR_ADVANCE_BUFFER_SECONDS;
-    if (now < due) {
-        return false;  // a scheduled update could still arrive
+    const time_t interval_sec = (time_t)interval_min * 60;
+
+    // PKJS fetches on an aligned grid (index.js shouldFetch): the boundary that
+    // should have delivered the current frame is floor(now/interval)*interval.
+    // If the persisted window already starts there the real fetch landed, and
+    // between grid boundaries no fetch was due — so we hold. The watch only
+    // stands in for a fetch PKJS *skipped* (deduped), and a skip means PKJS
+    // already validated the freshly-revealed tail slots are dry, so zero-padding
+    // them on advance is correct.
+    const time_t grid = (now / interval_sec) * interval_sec;
+    if (start >= grid) {
+        return false;  // current grid fetch already applied; no boundary to cover
+    }
+    // Grace past the boundary for PKJS to deliver before we stand in. Anchored to
+    // the grid (not arrival time), so the cadence never drifts or compounds.
+    if (now < grid + RADAR_ADVANCE_BUFFER_SECONDS) {
+        return false;
     }
 
-    int count = (int)((now - start) / RADAR_SLOT_SECONDS);
+    // grid and start are both interval-grid (hence 5-min) aligned, so this is a
+    // whole slot count: interval/5 slots per skipped fetch.
+    int count = (int)((grid - start) / RADAR_SLOT_SECONDS);
     if (count <= 0) {
-        return false;  // already current
+        return false;  // start not slot-aligned (corrupt persist) — don't shear
     }
     if (count > RADAR_NUM_SLOTS) {
         count = RADAR_NUM_SLOTS;  // window fully rolled to empty
@@ -423,8 +434,7 @@ bool rain_radar_layer_tick(time_t now) {
 
     persist_set_rain_radar_trend(new_exact, RADAR_NUM_SLOTS);
     persist_set_rain_radar_trend_area(new_area, RADAR_NUM_SLOTS);
-    persist_set_rain_radar_start(start + (time_t)count * RADAR_SLOT_SECONDS);
-    s_last_radar_update = now;
+    persist_set_rain_radar_start(grid);
     rain_radar_layer_refresh();
     return true;
 }
