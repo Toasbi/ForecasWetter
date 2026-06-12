@@ -1,6 +1,5 @@
 // src/c/appendix/rain_tier.c
 #include "rain_tier.h"
-#include "c/appendix/slot_geometry.h"
 
 #define BAR_COLOR PBL_IF_COLOR_ELSE(GColorWhite, GColorBlack)
 
@@ -56,8 +55,7 @@ int rain_tier_proportional_height(int tenths, int bar_plot_h) {
 
     // Lower tiers contribute their full segment height; the topmost
     // tier contributes fill_q8/256 of its segment so the top edge moves
-    // continuously across the wire-tenths domain — same math as the
-    // slab loop in rain_tier_bar_draw_slabs.
+    // continuously across the wire-tenths domain.
     const int below_h          = (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[tier - 1]) / 100;
     const int slab_top_full    = (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[tier])     / 100;
     const int slab_h_full      = slab_top_full - below_h;
@@ -83,80 +81,28 @@ GColor rain_tier_color(int tier) {
     return fill;
 }
 
-void rain_tier_bar_draw_slabs(GContext *ctx,
-                              int bar_x, int bar_w,
-                              int bar_plot_bottom, int bar_plot_h,
-                              int tenths, bool invert) {
-    if (tenths <= 0 || bar_w <= 0 || bar_plot_h <= 0) {
-        return;
+int16_t rain_tier_permille(int tenths) {
+    return (int16_t)rain_tier_proportional_height(tenths, 1000);
+}
+
+void rain_tier_fill_permille(const uint8_t *tenths, int16_t *out, int count) {
+    for (int i = 0; i < count; ++i) {
+        out[i] = rain_tier_permille(tenths[i]);
     }
-    const int tier         = rain_tier_of_tenths(tenths);
-    const int fill_q8      = rain_tier_fill_q8(tenths, tier);
-    const int bar_plot_top = bar_plot_bottom - bar_plot_h;
+}
 
-    // Lower slabs (k < tier) fill their segment fully. The topmost slab
-    // (k == tier) grows from its segment base by fill_q8/256 so bar
-    // height varies continuously across the wire-tenths domain while
-    // colours stay discrete per tier.
-    //
-    // Invert: slab y math anchors at bar_plot_top instead of
-    // bar_plot_bottom so the bar hangs downward. Tier 1 stays nearest
-    // the anchor edge (which is now the top).
-    for (int k = 1; k <= tier; ++k) {
-        int slab_top_full, slab_bottom_full;
-        if (invert) {
-            slab_top_full    = bar_plot_top + (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k - 1]) / 100;
-            slab_bottom_full = bar_plot_top + (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k])     / 100;
-        } else {
-            slab_top_full    = bar_plot_bottom - (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k])     / 100;
-            slab_bottom_full = bar_plot_bottom - (bar_plot_h * RAIN_TIER_TOP_PCT_ARR[k - 1]) / 100;
-        }
-        const int slab_h_full = slab_bottom_full - slab_top_full;
-
-        int slab_h;
-        if (k < tier) {
-            slab_h = slab_h_full;
-        } else {
-            slab_h = (slab_h_full * fill_q8) / 256;
-            if (slab_h == 0 && fill_q8 > 0) { slab_h = 1; }
-        }
-        if (slab_h <= 0) { continue; }
-
-        const int slab_top = invert ? slab_top_full : (slab_bottom_full - slab_h);
-        graphics_context_set_fill_color(ctx, rain_tier_color(k));
-        graphics_fill_rect(ctx, GRect(bar_x, slab_top, bar_w, slab_h), 0, GCornerNone);
-    }
-
-#ifndef PBL_COLOR
-    // B&W: every tier reduces to a single BAR_COLOR (black), so a tall bar
-    // that extends above the precip area or outside the radar hatch sits
-    // black-on-black and disappears. A 1 px white outline around the bar's
-    // silhouette keeps the shape readable on either background.
-    const int bar_h = rain_tier_proportional_height(tenths, bar_plot_h);
-    if (bar_h > 0) {
-        const int outline_top = invert ? bar_plot_top : (bar_plot_bottom - bar_h);
-        graphics_context_set_stroke_color(ctx, GColorWhite);
-        graphics_context_set_stroke_width(ctx, 1);
-        graphics_draw_rect(ctx, GRect(bar_x, outline_top, bar_w, bar_h));
-    }
+#ifdef PBL_COLOR
+const ChartColorStop RAIN_TIER_STOPS[] = {
+    { 0,   GColorLightGray    },   // tier 1
+    { 140, GColorElectricBlue },   // tier 2 — RAIN_TIER_TOP_PCT_ARR * 10
+    { 340, GColorGreen        },   // tier 3
+    { 560, GColorYellow       },   // tier 4
+    { 780, GColorSunsetOrange },   // tier 5
+};
+#else
+const ChartColorStop RAIN_TIER_STOPS[] = {
+    { 0, GColorBlack },            // single stop; outline carries the shape
+};
 #endif
-}
-
-void rain_bars_draw(GContext *ctx, GRect plot_rect, SlotGeometry slots,
-                    const uint8_t *tenths) {
-    if (slots.num_slots < 1 || !tenths) {
-        return;
-    }
-
-    const int16_t bar_plot_h = plot_rect.size.h;
-    const int16_t bar_plot_bottom = plot_rect.origin.y + bar_plot_h;
-
-    for (int i = 0; i < slots.num_slots; ++i) {
-        const int t = tenths[i];
-        if (t <= 0) {
-            continue;
-        }
-        const int bar_x = slot_geometry_bar_x(slots, i, plot_rect.origin.x);
-        rain_tier_bar_draw_slabs(ctx, bar_x, slots.bar_w, bar_plot_bottom, bar_plot_h, t, false);
-    }
-}
+const int RAIN_TIER_NUM_STOPS =
+    (int)(sizeof(RAIN_TIER_STOPS) / sizeof(RAIN_TIER_STOPS[0]));

@@ -72,42 +72,18 @@
     #define FORECAST_TICK_SMALL_COLOR  GColorLightGray
 #endif
 
-#define FORECAST_BOTTOM_TICK_INIT { \
-        .length     = 4,  .color     = FORECAST_TICK_SMALL_COLOR, \
-        .big_length = 6,  .big_color = GColorLightGray, \
-        .big_every  = 3, \
-    }
-
-#define FORECAST_TICKS_INIT { \
-        .tick_w = 1, \
-        .bottom = FORECAST_BOTTOM_TICK_INIT, \
-    }
-
-#define FORECAST_SLOTS_INIT { \
-        .pad = FORECAST_PAD, .bar_w = FORECAST_BAR_W, \
-        .num_slots = MAX_FORECAST_ENTRIES, \
-    }
-
-static const ChartConfig FORECAST_CHART_DAY = {
-    .frame = {
-        .left   = { 1, FORECAST_AXIS_COLOR_DAY },
-        .right  = { 0, GColorClear },
-        .top    = { 0, GColorClear },
-        .bottom = { 1, FORECAST_AXIS_COLOR_DAY },
-    },
-    .ticks = FORECAST_TICKS_INIT,
-    .slots = FORECAST_SLOTS_INIT,
+static const ChartDef FORECAST_DEF = {
+    .num_slots = MAX_FORECAST_ENTRIES,
+    .tick_w    = 1,
+    .bar_pad   = FORECAST_PAD,
+    .bar_w     = FORECAST_BAR_W,
+    .inset_left = 1, .inset_bottom = 1,   // 1px left + bottom border rows
 };
 
-static const ChartConfig FORECAST_CHART_NIGHT = {
-    .frame = {
-        .left   = { 1, FORECAST_AXIS_COLOR_NIGHT },
-        .right  = { 0, GColorClear },
-        .top    = { 0, GColorClear },
-        .bottom = { 1, FORECAST_AXIS_COLOR_NIGHT },
-    },
-    .ticks = FORECAST_TICKS_INIT,
-    .slots = FORECAST_SLOTS_INIT,
+// Tick style for the bottom axis (kinds come from the per-slot data)
+static const TickSide FORECAST_TICK_STYLE = {
+    .length     = 4,  .color     = FORECAST_TICK_SMALL_COLOR,
+    .big_length = 6,  .big_color = GColorLightGray,
 };
 
 typedef struct
@@ -169,11 +145,6 @@ static int s_axis_left_w = LEFT_AXIS_GRAPH_INSET_DEFAULT;
 static int s_label_strip_w = LEFT_AXIS_LABEL_STRIP_MIN_W;
 static char s_buffer_lo[12];
 static char s_buffer_hi[12];
-static GPoint s_points_temp[MAX_FORECAST_ENTRIES];
-static GPoint s_points_precip[MAX_FORECAST_ENTRIES + 2];
-static GPath s_path_precip_area_under;
-static GPath s_path_precip_top;
-static GPath s_path_temp;
 
 static RenderSpec make_render_spec()
 {
@@ -526,48 +497,6 @@ static void draw_night_shading_over(GContext *ctx, GRect graph_plot_rect,
     draw_night_boundaries(ctx, graph_plot_rect, forecast_start, forecast_end, night_segments);
 }
 
-static void draw_rain_bars(GContext *ctx, GRect content, SlotGeometry slots,
-                           const uint8_t *rain_tenths) {
-    // Same anchor shift as draw_precip_area / draw_temp_line so bars,
-    // curves, and ticks all share one column grid. rain_bars_draw uses
-    // plot_rect.origin.x as the slot anchor — shift it left by tick_w.
-    GRect bar_rect = content;
-    bar_rect.origin.x -= slots.tick_w;
-    rain_bars_draw(ctx, bar_rect, slots, rain_tenths);
-}
-
-// Anchor sits in the left-border column — one tick_w to the left of
-// content.origin.x. Bars use content.origin.x (inside the border) so
-// they don't move; curves and ticks back up by tick_w so their columns
-// line up with the pre-phase-3 visual.
-static void draw_precip_area(GContext *ctx, GRect content,
-                             SlotGeometry slots, const uint8_t *precips) {
-    const int anchor_x    = content.origin.x - slots.tick_w;
-    const int plot_bottom = content.origin.y + content.size.h;
-    const int plot_h      = content.size.h;
-    const int grid_right  = slot_geometry_tick_x(slots, slots.num_slots, anchor_x);
-    for (int i = 0; i < slots.num_slots; ++i) {
-        const int tick_x = slot_geometry_tick_x(slots, i, anchor_x);
-        const int precip = precips[i];
-        const int precip_h = precip * plot_h / 100;
-        s_points_precip[i] = GPoint(tick_x, plot_bottom - precip_h);
-    }
-    s_points_precip[slots.num_slots]     = GPoint(grid_right, plot_bottom);
-    s_points_precip[slots.num_slots + 1] = GPoint(anchor_x,   plot_bottom);
-
-    s_path_precip_area_under.num_points = slots.num_slots + 2;
-    s_path_precip_area_under.points = s_points_precip;
-    graphics_context_set_fill_color(ctx, PRECIP_FILL_COLOR);
-    gpath_draw_filled(ctx, &s_path_precip_area_under);
-}
-
-static void draw_precip_top_line(GContext *ctx, int num_entries) {
-    s_path_precip_top.num_points = num_entries;
-    s_path_precip_top.points = s_points_precip;
-    graphics_context_set_stroke_color(ctx, GColorPictonBlue);
-    graphics_context_set_stroke_width(ctx, 1);
-    gpath_draw_outline_open(ctx, &s_path_precip_top);
-}
 
 static void draw_left_axis(GContext *ctx, int h) {
     // Mask anything drawn into the label strip. The vertical axis line
@@ -597,109 +526,56 @@ static void draw_left_axis(GContext *ctx, int h) {
                        GTextOverflowModeFill, GTextAlignmentRight, NULL);
 }
 
-typedef struct {
-    GRect       outer;
-    GraphFrame  frame;
-    TickSide    bottom;
-    int         num_slots;
-    int         visible_right;   // layer-coord x of the right screen edge
-    struct tm  *forecast_start_local;
-} ForecastTickCtx;
 
-static void forecast_tick_callback(GContext *ctx, int idx, int tick_x, void *user) {
-    ForecastTickCtx *c = user;
-    if (idx >= c->num_slots) return;   // closing tick at right edge has no slot
-
-    const int  n        = c->bottom.big_every;
-    const bool is_label = (n > 0) && (idx % n) == 0;
-    const int  axis_y   = c->outer.origin.y + c->outer.size.h - 1;
-
+// Bottom-axis slots: hour digit every 3rd slot; small screens mark the
+// midpoint between digits with a small tick, emery ticks every slot and
+// keeps a big tick under each digit.
+static void forecast_fill_axis_slots(ChartAxisSlot *slots, int num_slots,
+                                     int origin_x, int pitch, int visible_w,
+                                     const struct tm *start_local) {
+    for (int i = 0; i < num_slots; ++i) {
+        slots[i].label[0] = '\0';
+        slots[i].tick     = TICK_NONE;
+        if ((i % 3) != 0) {
 #ifdef PBL_PLATFORM_EMERY
-    // Every slot draws a tick; big ones at label positions.
-    tick_side_draw_at(ctx, c->outer, c->frame, GRAPH_SIDE_BOTTOM,
-                      c->bottom, idx, tick_x);
-    if (is_label) {
-        char buf[4];
-        snprintf(buf, sizeof(buf), "%d",
-                 config_axis_hour(c->forecast_start_local->tm_hour + idx));
-        graphics_draw_text(ctx, buf,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(tick_x - 20,
-                                 axis_y + EMERY_AXIS_LABEL_TOP,
-                                 40, EMERY_AXIS_LABEL_H),
-                           GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-    }
+            // emery: a tick on every slot keeps the dense grid readable
+            slots[i].tick = TICK_SMALL;
 #else
-    // Sparse ticks: a digit at label positions (no tick line — the label
-    // IS the marker), a small tick at the midpoint between labels.
-    if (is_label) {
-        const int hour = config_axis_hour(c->forecast_start_local->tm_hour + idx);
-        const int label_left_pad = 3; // nudge hour digits left to sit over their slot
-        // The rightmost slots overflow the display; a two-digit label there
-        // gets sliced by the screen edge, so drop it rather than draw half a
-        // number. Single-digit labels are narrow enough to keep.
-        const int two_digit_half_w = 8; // approx half-width of a 2-digit GOTHIC_14 label
-        if (hour >= 10 && (tick_x - label_left_pad) + two_digit_half_w > c->visible_right) {
-            return;
-        }
-        char buf[4];
-        snprintf(buf, sizeof(buf), "%d", hour);
-        graphics_draw_text(ctx, buf,
-                           fonts_get_system_font(FONT_KEY_GOTHIC_14),
-                           GRect(tick_x - 20 - label_left_pad,
-                                 axis_y - BOTTOM_AXIS_FONT_OFFSET,
-                                 40, BOTTOM_AXIS_H),
-                           GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
-    } else if (n > 0 && (idx % n) == n / 2) {
-        tick_side_draw_at(ctx, c->outer, c->frame, GRAPH_SIDE_BOTTOM,
-                          c->bottom, idx, tick_x);
-    }
+            if ((i % 3) == 1) slots[i].tick = TICK_SMALL;  // midpoint marker
 #endif
-}
-
-static void draw_bottom_axis(GContext *ctx, GRect outer, ChartGeometry chart,
-                             const ChartConfig *cfg, int visible_right,
-                             struct tm *forecast_start_local) {
-    graphics_context_set_text_color(ctx, GColorWhite);
-
-    ForecastTickCtx tick_ctx = {
-        .outer                = outer,
-        .frame                = cfg->frame,
-        .bottom               = cfg->ticks.bottom,
-        .num_slots            = chart.slots.num_slots,
-        .visible_right        = visible_right,
-        .forecast_start_local = forecast_start_local,
-    };
-    // Ticks/labels anchor in the left-border column — one tick_w to the
-    // left of chart.content.origin.x — so the columns line up with the
-    // pre-phase-3 visual. Bars keep their own (chart.content) anchor.
-    slot_geometry_visit_ticks(chart.slots, ctx,
-                              chart.content.origin.x - chart.slots.tick_w,
-                              forecast_tick_callback, &tick_ctx);
-}
-
-static void draw_temp_line(GContext *ctx, GRect content,
-                           SlotGeometry slots, const int16_t *temps, int lo, int hi) {
-    const int anchor_x    = content.origin.x - slots.tick_w;
-    const int temp_plot_h = content.size.h - MARGIN_TEMP_H * 2;
-    const int range       = hi - lo;
-    const int range_safe  = range > 0 ? range : 1;
-    const int plot_bottom = content.origin.y + content.size.h;
-
-    for (int i = 0; i < slots.num_slots; ++i) {
-        const int tick_x = slot_geometry_tick_x(slots, i, anchor_x);
-        int temp_h = temp_plot_h / 2;
-        if (range > 0) {
-            temp_h = (int)(((int32_t)(temps[i] - lo) * temp_plot_h) / range_safe);
+            continue;
         }
-        s_points_temp[i] = GPoint(tick_x, plot_bottom - temp_h - MARGIN_TEMP_H);
+#ifdef PBL_PLATFORM_EMERY
+        slots[i].tick = TICK_BIG;  // emery: digit slots keep their big tick
+#endif
+        const int hour = config_axis_hour(start_local->tm_hour + i);
+#ifndef PBL_PLATFORM_EMERY
+        // Two-digit labels sliced by the screen edge are omitted instead of
+        // drawing half a number (was clip logic in the tick callback).
+        if (hour >= 10 && (origin_x + i * pitch - 3) + 8 > visible_w) continue;
+#endif
+        snprintf(slots[i].label, sizeof(slots[i].label), "%d", hour);
     }
+}
 
-    s_path_temp.num_points = slots.num_slots;
-    s_path_temp.points = s_points_temp;
-    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorRed, GColorWhite));
-    graphics_context_set_stroke_width(ctx, 3);
-    gpath_draw_outline_open(ctx, &s_path_temp);
+typedef struct {
+    GRect                plot_rect;   // stage 1: pre-phase-3 compat mapping;
+                                      // stage 2 switches this to the grid rect
+    time_t               start, end;
+    const NightSegments *night;
+    const GPoint        *precip_pts;
+    int                  count;
+} NightLayerCtx;
+
+static void night_under_layer(const ChartRender *r, void *user) {
+    const NightLayerCtx *c = user;
+    draw_night_shading_under(r->ctx, c->plot_rect, c->start, c->end,
+                             c->night, c->precip_pts, c->count);
+}
+
+static void night_over_layer(const ChartRender *r, void *user) {
+    const NightLayerCtx *c = user;
+    draw_night_shading_over(r->ctx, c->plot_rect, c->start, c->end, c->night);
 }
 
 static void forecast_update_proc(Layer *layer, GContext *ctx)
@@ -732,48 +608,79 @@ static void forecast_update_proc(Layer *layer, GContext *ctx)
         night_segments = compute_night_segments(forecast_start, forecast_end);
     }
 
-    // Chart outer matches phase 2's frame_outer: spans the grid columns
-    // and the plot height down to axis_y. num_slots is the dynamic entry
-    // count (not the config's compile-time MAX_FORECAST_ENTRIES) so the
-    // geometry is correct on construction and stays immutable.
-    const ChartConfig *cfg = render_spec.draw_night_overlay
-        ? &FORECAST_CHART_NIGHT
-        : &FORECAST_CHART_DAY;
-    const int pitch = cfg->ticks.tick_w + 2 * cfg->slots.pad + cfg->slots.bar_w;
+    const bool night_on = render_spec.draw_night_overlay;
     const int16_t axis_y     = h - BOTTOM_AXIS_H;
-    const int16_t grid_right = graph_bounds.origin.x + ds.num_entries * pitch;
+    const int16_t grid_right = graph_bounds.origin.x
+                             + ds.num_entries * chart_def_pitch(&FORECAST_DEF);
     const GRect outer = GRect(graph_bounds.origin.x, 0,
                               grid_right - graph_bounds.origin.x + 1,
                               axis_y + 1);
-    const ChartGeometry chart = chart_compute(*cfg, outer, ds.num_entries);
 
-    // Night shading uses its own plot rect with the full graph_bounds
-    // width so the time→x mapping matches the pre-phase-3 visual; the
-    // chart's content rect is narrower (only grid_w wide).
-    const GRect night_plot_rect = GRect(graph_bounds.origin.x, 0,
-                                        graph_bounds.size.w,
-                                        chart.content.size.h);
-
-    draw_precip_area(ctx, chart.content, chart.slots, ds.precip_probs);
-    if (render_spec.draw_night_overlay)
-    {
-        draw_night_shading_under(ctx, night_plot_rect, forecast_start, forecast_end,
-                                 &night_segments, s_points_precip, ds.num_entries);
+    // Per-redraw data prep + layer list. The scratch arrays are module-static
+    // (not stack): aplite's small app stack overflows otherwise (PC=0/LR=0).
+    // Safe — single layer instance, single-threaded, all recomputed each redraw.
+    static int16_t precip_vals[MAX_FORECAST_ENTRIES];
+    static int16_t rain_pm[MAX_FORECAST_ENTRIES];
+    static GPoint  precip_pts[MAX_FORECAST_ENTRIES + 2];
+    static ChartAxisSlot axis_slots[MAX_FORECAST_ENTRIES];
+    for (int i = 0; i < ds.num_entries; ++i) {
+        precip_vals[i] = ds.precip_probs[i];           // uint8 -> int16, raw %
     }
-    draw_rain_bars(ctx, chart.content, chart.slots, ds.rain_tenths);
-    if (render_spec.draw_night_overlay)
-    {
-        draw_night_shading_over(ctx, night_plot_rect, forecast_start, forecast_end,
-                                &night_segments);
-    }
-    draw_precip_top_line(ctx, ds.num_entries);
-    draw_temp_line(ctx, chart.content, chart.slots, ds.temps, ds.temp_lo, ds.temp_hi);
+    rain_tier_fill_permille(ds.rain_tenths, rain_pm, ds.num_entries);
+    forecast_fill_axis_slots(axis_slots, MAX_FORECAST_ENTRIES,
+                             outer.origin.x, chart_def_pitch(&FORECAST_DEF),
+                             bounds.size.w, forecast_start_local);
 
-    // Frame on top of data so it overwrites curve/area pixels at the
-    // border columns (same paint order as phase 2). Then ticks + labels.
-    graph_frame_draw(ctx, cfg->frame, outer);
-    draw_bottom_axis(ctx, outer, chart, cfg, bounds.size.w, forecast_start_local);
-    draw_left_axis(ctx, h);
+    NightLayerCtx night_ctx = {
+        .plot_rect  = GRect(graph_bounds.origin.x, 0,
+                            graph_bounds.size.w, outer.size.h - 1),
+        .start      = forecast_start,
+        .end        = forecast_end,
+        .night      = &night_segments,
+        .precip_pts = precip_pts,
+        .count      = ds.num_entries,
+    };
+    const GColor axis_color = night_on ? FORECAST_AXIS_COLOR_NIGHT
+                                       : FORECAST_AXIS_COLOR_DAY;
+
+    // Z-order = array order, bottom first. Frame after the data bands so it
+    // overwrites curve/area pixels at the border columns.
+    static ChartLayer layers[8];  // aplite: largest redraw array — must be static, not stack
+    int n = 0;
+    layers[n++] = (ChartLayer){ CHART_LAYER_AREA, .area = {
+        .values = precip_vals, .export_points = precip_pts,
+        .count = ds.num_entries, .lo = 0, .hi = 100,
+        .fill_color = PRECIP_FILL_COLOR } };
+    if (night_on) {
+        layers[n++] = (ChartLayer){ CHART_LAYER_CUSTOM,
+                                    .custom = { night_under_layer, &night_ctx } };
+    }
+    layers[n++] = (ChartLayer){ CHART_LAYER_BARS, .bars = {
+        .values = rain_pm, .count = ds.num_entries, .lo = 0, .hi = 1000,
+        .stops = RAIN_TIER_STOPS, .num_stops = RAIN_TIER_NUM_STOPS,
+        .style = PBL_IF_COLOR_ELSE(BAR_SOLID, BAR_OUTLINED) } };
+    if (night_on) {
+        layers[n++] = (ChartLayer){ CHART_LAYER_CUSTOM,
+                                    .custom = { night_over_layer, &night_ctx } };
+    }
+    layers[n++] = (ChartLayer){ CHART_LAYER_LINE, .line = {
+        .points = precip_pts, .count = ds.num_entries,
+        .color = GColorPictonBlue, .width = 1 } };
+    layers[n++] = (ChartLayer){ CHART_LAYER_LINE, .line = {
+        .values = ds.temps, .count = ds.num_entries,
+        .lo = ds.temp_lo, .hi = ds.temp_hi, .inset_y = MARGIN_TEMP_H,
+        .color = PBL_IF_COLOR_ELSE(GColorRed, GColorWhite), .width = 3 } };
+    layers[n++] = (ChartLayer){ CHART_LAYER_FRAME, .frame = { .frame = {
+        .left   = { 1, axis_color },
+        .bottom = { 1, axis_color } } } };
+    layers[n++] = (ChartLayer){ CHART_LAYER_AXIS, .axis = {
+        .side = GRAPH_SIDE_BOTTOM, .style = FORECAST_TICK_STYLE,
+        .slots = axis_slots,
+        .label_align = ALIGN_START, .tick_align = ALIGN_START } };
+    chart_draw(ctx, &FORECAST_DEF, outer, layers, n);
+
+    draw_left_axis(ctx, h);   // hi/lo temp strip: chart-adjacent chrome,
+                              // not a chart layer (spec §4 engine boundary)
     MEMORY_HEAP_PROBE_LOG_MIN(&redraw_probe);
     MEMORY_LOG_HEAP("forecast_update:exit");
 }
